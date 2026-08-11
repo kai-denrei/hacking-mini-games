@@ -91,6 +91,13 @@ export class HalftoneCloud {
     this.geometry.attributes.position!.needsUpdate = true;
   }
 
+  /** In-place position update (same length) — cheap enough to call per frame. */
+  updatePositions(positions: Float32Array): void {
+    const attr = this.geometry.getAttribute('position') as THREE.BufferAttribute;
+    (attr.array as Float32Array).set(positions);
+    attr.needsUpdate = true;
+  }
+
   /** Keep depth normalization centered on the orbit target each frame. */
   sync(camera: THREE.Camera, target: THREE.Vector3, pixelRatio: number): void {
     this.material.uniforms.uFocusDepth!.value = camera.position.distanceTo(target);
