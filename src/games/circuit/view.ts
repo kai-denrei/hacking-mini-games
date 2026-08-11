@@ -7,7 +7,7 @@ import { DotField } from '../../render/dotfield.ts';
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
 import { layerOf, type Board } from '../transfer/model.ts';
-import { cellPos, termPos, type Side } from '../transfer/layout.ts';
+import { cellPos, termPos, setVerticalGain, gainFor, vGain, type Side } from '../transfer/layout.ts';
 import { traceDots, type TraceDot } from './route.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
 
@@ -18,12 +18,12 @@ import type { Difficulty, Skill } from '../../engine/session.ts';
 const C = {
   cellN: [0.22, 0.22, 0.28],
   cellP: [0.3, 0.85, 0.62],
-  cellE: [0.92, 0.42, 0.36],
+  cellE: [0.82, 0.88, 1.0], // host = white (was red)
   dimP: [0.09, 0.2, 0.16],
-  dimE: [0.22, 0.11, 0.1],
+  dimE: [0.19, 0.21, 0.27],
   dimN: [0.12, 0.12, 0.16],
   litP: [0.5, 1.1, 0.85],
-  litE: [1.1, 0.55, 0.5],
+  litE: [1.05, 1.08, 1.16],
   litD: [0.4, 0.4, 0.42],
   white: [1, 1, 1],
 } as const;
@@ -33,6 +33,9 @@ const lerpC = (a: RGB, b: RGB, t: number): [number, number, number] => [
   a[1]! + (b[1]! - a[1]!) * t,
   a[2]! + (b[2]! - a[2]!) * t,
 ];
+const scale = (a: RGB, k: number): [number, number, number] => [a[0]! * k, a[1]! * k, a[2]! * k];
+// Subtle per-terminal tone alternation so adjacent traces read as distinct lanes.
+const laneTone = (term: number): number => (term % 2 === 0 ? 1 : 0.76);
 const timerColor = (f: number): string => {
   const T = [93, 202, 165];
   const A = [224, 176, 112];
@@ -111,9 +114,9 @@ export function mountCircuit(
   let traceMap = new Map<string, TraceDot[]>();
   let mouseWorld: [number, number] | null = null;
 
-  function build(difficulty: Difficulty, seed: string): void {
-    board = generateBoard(difficulty, seed);
-    game = new TransferGame(board);
+  // Recompute traces from the current layout — rerun whenever the vertical gain
+  // changes (resize), since traceDots bakes in the scaled terminal/cell positions.
+  function buildTraces(): void {
     traces = [];
     traceMap = new Map();
     for (const side of ['left', 'right'] as Side[]) {
@@ -125,6 +128,11 @@ export function mountCircuit(
         }
       });
     }
+  }
+  function build(difficulty: Difficulty, seed: string): void {
+    board = generateBoard(difficulty, seed);
+    game = new TransferGame(board);
+    buildTraces();
     overlay.style.display = 'none';
   }
   build(initial.difficulty, initial.seed);
@@ -141,6 +149,8 @@ export function mountCircuit(
     camera.right = top * aspect;
     camera.left = -top * aspect;
     camera.updateProjectionMatrix();
+    setVerticalGain(gainFor(top));
+    buildTraces();
   }
   window.addEventListener('resize', resize);
   resize();
@@ -185,7 +195,7 @@ export function mountCircuit(
     overlay.innerHTML =
       `<div style="font-size:22px;letter-spacing:.2em;color:${won ? '#8fd0b6' : '#d0605a'}">${won ? '◆ CIRCUIT TAKEN' : '✕ REPELLED'}</div>` +
       `<div style="font-size:12px;color:#9a9aa6">you ${c.p} · host ${c.e} · neutral ${c.n}</div>` +
-      `<div style="font-size:11px;color:#55555f;margin-top:8px">press R to run again</div>`;
+      `<div style="font-size:11px;color:#55555f;margin-top:8px">press R or tap ⟳ to run again</div>`;
     overlay.style.display = 'flex';
   }
 
@@ -215,7 +225,7 @@ export function mountCircuit(
     // traces (base dim + travelling light)
     for (const tr of traces) {
       const role = game.playerSide ? (tr.side === game.playerSide ? 'P' : 'E') : 'N';
-      const dim = role === 'P' ? C.dimP : role === 'E' ? C.dimE : C.dimN;
+      const dim = scale(role === 'P' ? C.dimP : role === 'E' ? C.dimE : C.dimN, laneTone(tr.term));
       const active = lights.get(`${tr.side}:${tr.term}:${tr.cell}`);
       for (const d of tr.dots) {
         let bright = 0;
@@ -279,8 +289,9 @@ export function mountCircuit(
     }
 
     // budgets
-    for (let i = 0; i < game.pBudget; i++) field.dot(-0.24 + i * 0.05, -0.99, C.cellP[0], C.cellP[1], C.cellP[2], 5);
-    if (initial.skill >= 3) for (let i = 0; i < game.eBudget; i++) field.dot(-0.24 + i * 0.05, 0.99, C.cellE[0], C.cellE[1], C.cellE[2], 5);
+    const railY = 0.99 * vGain();
+    for (let i = 0; i < game.pBudget; i++) field.dot(-0.24 + i * 0.05, -railY, C.cellP[0], C.cellP[1], C.cellP[2], 5);
+    if (initial.skill >= 3) for (let i = 0; i < game.eBudget; i++) field.dot(-0.24 + i * 0.05, railY, C.cellE[0], C.cellE[1], C.cellE[2], 5);
 
     field.commit(renderer.getPixelRatio());
     composer.render();

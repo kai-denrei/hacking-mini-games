@@ -8,7 +8,7 @@ import { searching, solving, type Shape, type PDot } from '../../render/primitiv
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
 import { layerOf, type Board, type Owner } from '../transfer/model.ts';
-import { cellPos, termPos, type Side } from '../transfer/layout.ts';
+import { cellPos, termPos, setVerticalGain, gainFor, vGain, type Side } from '../transfer/layout.ts';
 import { traceDots, type TraceDot } from '../circuit/route.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
 
@@ -20,17 +20,20 @@ import type { Difficulty, Skill } from '../../engine/session.ts';
 const C = {
   cellN: [0.2, 0.2, 0.26],
   p: [0.34, 0.9, 0.66],
-  e: [0.95, 0.44, 0.4],
+  e: [0.82, 0.88, 1.0], // host = white (was red)
   dimP: [0.09, 0.2, 0.16],
-  dimE: [0.22, 0.11, 0.1],
+  dimE: [0.19, 0.21, 0.27],
   dimN: [0.12, 0.12, 0.16],
   litP: [0.5, 1.1, 0.85],
-  litE: [1.1, 0.55, 0.5],
+  litE: [1.05, 1.08, 1.16],
   litD: [0.4, 0.4, 0.42],
   white: [1, 1, 1],
 } as const;
 type RGB = readonly number[] | number[];
 const mix = (a: RGB, b: RGB, t: number): [number, number, number] => [a[0]! + (b[0]! - a[0]!) * t, a[1]! + (b[1]! - a[1]!) * t, a[2]! + (b[2]! - a[2]!) * t];
+const scale = (a: RGB, k: number): [number, number, number] => [a[0]! * k, a[1]! * k, a[2]! * k];
+// Subtle per-terminal tone alternation so adjacent traces read as distinct lanes.
+const laneTone = (term: number): number => (term % 2 === 0 ? 1 : 0.76);
 const timerColor = (f: number): string => {
   const T = [93, 202, 165];
   const A = [224, 176, 112];
@@ -103,9 +106,9 @@ export function mountShapes(canvas: HTMLCanvasElement, initial: { difficulty: Di
   let traceMap = new Map<string, TraceDot[]>();
   let mouseWorld: [number, number] | null = null;
 
-  function build(difficulty: Difficulty, seed: string): void {
-    board = generateBoard(difficulty, seed);
-    game = new TransferGame(board);
+  // Recompute traces from the current layout — rerun whenever the vertical gain
+  // changes (resize), since traceDots bakes in the scaled terminal/cell positions.
+  function buildTraces(): void {
     traces = [];
     traceMap = new Map();
     for (const side of ['left', 'right'] as Side[]) {
@@ -117,6 +120,11 @@ export function mountShapes(canvas: HTMLCanvasElement, initial: { difficulty: Di
         }
       });
     }
+  }
+  function build(difficulty: Difficulty, seed: string): void {
+    board = generateBoard(difficulty, seed);
+    game = new TransferGame(board);
+    buildTraces();
     overlay.style.display = 'none';
   }
   build(initial.difficulty, initial.seed);
@@ -133,6 +141,8 @@ export function mountShapes(canvas: HTMLCanvasElement, initial: { difficulty: Di
     camera.right = top * aspect;
     camera.left = -top * aspect;
     camera.updateProjectionMatrix();
+    setVerticalGain(gainFor(top));
+    buildTraces();
   }
   window.addEventListener('resize', resize);
   resize();
@@ -177,7 +187,7 @@ export function mountShapes(canvas: HTMLCanvasElement, initial: { difficulty: Di
     overlay.innerHTML =
       `<div style="font-size:22px;letter-spacing:.2em;color:${won ? '#8fd0b6' : '#d0605a'}">${won ? '◆ RESOLVED' : '✕ SCATTERED'}</div>` +
       `<div style="font-size:12px;color:#9a9aa6">you ${c.p} · host ${c.e} · neutral ${c.n}</div>` +
-      `<div style="font-size:11px;color:#55555f;margin-top:8px">press R to run again</div>`;
+      `<div style="font-size:11px;color:#55555f;margin-top:8px">press R or tap ⟳ to run again</div>`;
     overlay.style.display = 'flex';
   }
 
@@ -209,7 +219,7 @@ export function mountShapes(canvas: HTMLCanvasElement, initial: { difficulty: Di
     // traces + travelling light
     for (const tr of traces) {
       const role = game.playerSide ? (tr.side === game.playerSide ? 'P' : 'E') : 'N';
-      const dim = role === 'P' ? C.dimP : role === 'E' ? C.dimE : C.dimN;
+      const dim = scale(role === 'P' ? C.dimP : role === 'E' ? C.dimE : C.dimN, laneTone(tr.term));
       const active = lights.get(`${tr.side}:${tr.term}:${tr.cell}`);
       for (const d of tr.dots) {
         let bright = 0;
@@ -261,7 +271,9 @@ export function mountShapes(canvas: HTMLCanvasElement, initial: { difficulty: Di
       }
     }
 
-    // terminals — searching primitive (left = octa, right = cube)
+    // terminals — searching primitive (left = octa, right = cube). Grow a touch
+    // on tall/portrait viewports so they don't read as plain dots.
+    const termS = 0.055 * Math.min(1.45, 0.86 + 0.14 * vGain());
     for (const side of ['left', 'right'] as Side[]) {
       const shape: Shape = side === 'left' ? 'octa' : 'cube';
       const role = game.playerSide ? (side === game.playerSide ? 'P' : 'E') : 'N';
@@ -270,12 +282,13 @@ export function mountShapes(canvas: HTMLCanvasElement, initial: { difficulty: Di
         const [x, y] = termPos(side, i);
         const hovered = hoverSide === side && hoverTerm === i && (game.phase === 'PLAN' || side === game.playerSide);
         const glow = hovered ? 1.6 : game.phase === 'PLAN' ? 0.7 + 0.4 * Math.sin(now / 240 + i) : 1;
-        drawPrim(searching(shape, nowSec + i * 0.7), x, y, 0.055, hovered ? mix(col, C.white, 0.4) : col, glow);
+        drawPrim(searching(shape, nowSec + i * 0.7), x, y, termS, hovered ? mix(col, C.white, 0.4) : col, glow);
       }
     }
 
-    for (let i = 0; i < game.pBudget; i++) field.dot(-0.24 + i * 0.05, -0.99, C.p[0], C.p[1], C.p[2], 5);
-    if (initial.skill >= 3) for (let i = 0; i < game.eBudget; i++) field.dot(-0.24 + i * 0.05, 0.99, C.e[0], C.e[1], C.e[2], 5);
+    const railY = 0.99 * vGain();
+    for (let i = 0; i < game.pBudget; i++) field.dot(-0.24 + i * 0.05, -railY, C.p[0], C.p[1], C.p[2], 5);
+    if (initial.skill >= 3) for (let i = 0; i < game.eBudget; i++) field.dot(-0.24 + i * 0.05, railY, C.e[0], C.e[1], C.e[2], 5);
 
     field.commit(renderer.getPixelRatio());
     composer.render();

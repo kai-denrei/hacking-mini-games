@@ -3,7 +3,7 @@ import { DotField } from '../../render/dotfield.ts';
 import { generateBoard } from './generate.ts';
 import { TransferGame } from './play.ts';
 import { layerOf, type Board } from './model.ts';
-import { cellPos, termPos, type Side } from './layout.ts';
+import { cellPos, termPos, setVerticalGain, gainFor, vGain, type Side } from './layout.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
 
 // TRANSFER renderer + play loop. A flat dot-circuit: a central 12-cell strip
@@ -14,12 +14,12 @@ import type { Difficulty, Skill } from '../../engine/session.ts';
 const C = {
   neutral: [0.3, 0.3, 0.36],
   p: [0.36, 0.79, 0.65],
-  e: [0.85, 0.42, 0.38],
+  e: [0.82, 0.88, 1.0], // host = white (was red)
   pDim: [0.14, 0.26, 0.22],
-  eDim: [0.28, 0.16, 0.15],
+  eDim: [0.19, 0.21, 0.27],
   gray: [0.16, 0.16, 0.2],
   pBright: [0.62, 1.0, 0.86],
-  eBright: [1.0, 0.62, 0.56],
+  eBright: [1.05, 1.08, 1.16],
 } as const;
 type RGB = readonly [number, number, number] | number[];
 const lerpC = (a: RGB, b: RGB, t: number): [number, number, number] => [
@@ -27,6 +27,9 @@ const lerpC = (a: RGB, b: RGB, t: number): [number, number, number] => [
   a[1]! + (b[1]! - a[1]!) * t,
   a[2]! + (b[2]! - a[2]!) * t,
 ];
+const scale = (a: RGB, k: number): [number, number, number] => [a[0]! * k, a[1]! * k, a[2]! * k];
+// Subtle per-terminal tone alternation so adjacent wires read as distinct lanes.
+const laneTone = (term: number): number => (term % 2 === 0 ? 1 : 0.76);
 const timerColor = (f: number): string => {
   const T = [93, 202, 165];
   const A = [224, 176, 112];
@@ -114,6 +117,7 @@ export function mountTransfer(
     camera.right = top * aspect;
     camera.left = -top * aspect;
     camera.updateProjectionMatrix();
+    setVerticalGain(gainFor(top));
   }
   window.addEventListener('resize', resize);
   resize();
@@ -175,7 +179,7 @@ export function mountTransfer(
     overlay.innerHTML =
       `<div style="font-size:22px;letter-spacing:.2em;color:${won ? '#8fd0b6' : '#d0605a'}">${won ? '◆ CIRCUIT TAKEN' : '✕ REPELLED'}</div>` +
       `<div style="font-size:12px;color:#9a9aa6">you ${c.p} · host ${c.e} · neutral ${c.n}</div>` +
-      `<div style="font-size:11px;color:#55555f;margin-top:8px">press R to run again</div>`;
+      `<div style="font-size:11px;color:#55555f;margin-top:8px">press R or tap ⟳ to run again</div>`;
     overlay.style.display = 'flex';
   }
 
@@ -198,9 +202,10 @@ export function mountTransfer(
     // wires
     for (const side of ['left', 'right'] as Side[]) {
       const role = game.playerSide ? (side === game.playerSide ? 'P' : 'E') : 'N';
-      const col = role === 'P' ? C.pDim : role === 'E' ? C.eDim : C.gray;
+      const base = role === 'P' ? C.pDim : role === 'E' ? C.eDim : C.gray;
       const layer = layerOf(board, side);
       layer.terminals.forEach((t, i) => {
+        const col = scale(base, laneTone(i));
         for (const o of t.outcomes) wire(termPos(side, i), cellPos(o.cell), col);
       });
     }
@@ -241,8 +246,9 @@ export function mountTransfer(
     }
 
     // budgets: your pulses along the bottom; host's along the top (SKILL ≥ 3)
-    for (let i = 0; i < game.pBudget; i++) field.dot(-0.24 + i * 0.05, -0.99, C.p[0], C.p[1], C.p[2], 5);
-    if (initial.skill >= 3) for (let i = 0; i < game.eBudget; i++) field.dot(-0.24 + i * 0.05, 0.99, C.e[0], C.e[1], C.e[2], 5);
+    const railY = 0.99 * vGain();
+    for (let i = 0; i < game.pBudget; i++) field.dot(-0.24 + i * 0.05, -railY, C.p[0], C.p[1], C.p[2], 5);
+    if (initial.skill >= 3) for (let i = 0; i < game.eBudget; i++) field.dot(-0.24 + i * 0.05, railY, C.e[0], C.e[1], C.e[2], 5);
 
     field.commit(renderer.getPixelRatio());
     renderer.render(scene, camera);

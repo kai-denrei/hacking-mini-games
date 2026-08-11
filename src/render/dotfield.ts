@@ -71,8 +71,29 @@ export class DotField {
     this.n = 0;
   }
 
+  // Grow all buffers (double) when a frame demands more dots than the current
+  // capacity. Prevents the silent-drop failure where late-drawn geometry (e.g.
+  // the last terminals, drawn after the tubes) vanished once the buffer filled.
+  private grow(): void {
+    const nc = this.cap * 2;
+    const grow1 = (src: Float32Array, stride: number): Float32Array => {
+      const dst = new Float32Array(nc * stride);
+      dst.set(src);
+      return dst;
+    };
+    this.pos = grow1(this.pos, 3);
+    this.col = grow1(this.col, 3);
+    this.sz = grow1(this.sz, 1);
+    this.al = grow1(this.al, 1);
+    this.cap = nc;
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    this.geo.setAttribute('size', new THREE.BufferAttribute(this.sz, 1));
+    this.geo.setAttribute('alpha', new THREE.BufferAttribute(this.al, 1));
+  }
+
   dot(x: number, y: number, r: number, g: number, b: number, size: number, alpha = 1): void {
-    if (this.n >= this.cap) return;
+    if (this.n >= this.cap) this.grow();
     const i = this.n++;
     this.pos[i * 3] = x;
     this.pos[i * 3 + 1] = y;

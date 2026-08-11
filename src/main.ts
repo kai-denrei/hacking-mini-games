@@ -67,6 +67,25 @@ function mountGame(name: GameName): void {
   }
 }
 
+function reseed(): void {
+  if (!current) return;
+  seq += 1;
+  current.regenerate(CFG.difficulty, `${currentName}-${seq}`);
+}
+
+// On-screen reset (touch/mobile has no keyboard, so no R). A small ⟳ button in
+// the top-right corner reseeds the current game — the same as pressing R.
+const resetBtn = document.createElement('button');
+resetBtn.textContent = '⟳';
+resetBtn.setAttribute('aria-label', 'reset / reseed');
+resetBtn.style.cssText =
+  'position:fixed;top:8px;right:10px;z-index:2147483646;width:44px;height:44px;' +
+  'border-radius:50%;border:1px solid #2c2c38;background:rgba(12,13,20,.6);color:#9a9aa6;' +
+  'font:20px/44px ui-monospace,Menlo,monospace;text-align:center;cursor:pointer;' +
+  'padding:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation';
+resetBtn.addEventListener('click', reseed);
+document.body.appendChild(resetBtn);
+
 const rel = location.pathname.startsWith(BASE) ? location.pathname.slice(BASE.length) : location.pathname.replace(/^\//, '');
 const startNum = parseInt(rel.replace(/\D/g, ''), 10);
 mountGame(GAMES[startNum - 1] ?? 'tubes'); // game 5 is the default landing
@@ -74,8 +93,5 @@ mountGame(GAMES[startNum - 1] ?? 'tubes'); // game 5 is the default landing
 window.addEventListener('keydown', (e) => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= GAMES.length) mountGame(GAMES[n - 1]!);
-  else if ((e.key === 'r' || e.key === 'R') && current) {
-    seq += 1;
-    current.regenerate(CFG.difficulty, `${currentName}-${seq}`);
-  }
+  else if (e.key === 'r' || e.key === 'R') reseed();
 });

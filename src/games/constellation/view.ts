@@ -366,7 +366,7 @@ export function mountConstellation(
     overlay.innerHTML =
       `<div style="font-size:22px;letter-spacing:.2em;color:${color}">${title}</div>` +
       `<div style="font-size:12px;color:#9a9aa6;white-space:pre-line">${sub}</div>` +
-      `<div style="font-size:11px;color:#55555f;margin-top:8px">press R to run again</div>`;
+      `<div style="font-size:11px;color:#55555f;margin-top:8px">press R or tap ⟳ to run again</div>`;
     overlay.style.display = 'flex';
   }
 
