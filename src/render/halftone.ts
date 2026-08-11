@@ -23,6 +23,8 @@ export interface HalftoneOptions {
   emphasisGain?: number;
   /** Color of the momentary "found" flash. */
   flashColor?: number;
+  /** Color of extracted (picked) points. */
+  pickedColor?: number;
 }
 
 const VERT = /* glsl */ `
@@ -35,8 +37,10 @@ const VERT = /* glsl */ `
   uniform float uPixelRatio;
   uniform highp float uFlash; // 0..1 momentary "found" bloom (precision pinned: shared with frag)
   attribute float emphasis;   // per-point highlight; <0 dims, >0 brightens
+  attribute float picked;     // 1 = extracted (locked in)
   varying float vInk;
   varying float vEmph;
+  varying float vPicked;
 
   void main() {
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
@@ -47,7 +51,9 @@ const VERT = /* glsl */ `
     );                                          // 0 = nearest, 1 = farthest
     vInk = mix(uInkNear, uInkFar, depth01);
     vEmph = emphasis;
-    float bloom = 1.0 + 0.6 * max(emphasis, 0.0) + uFlash * max(emphasis, 0.0) * 1.1;
+    vPicked = picked;
+    float hi = max(max(emphasis, 0.0), picked);
+    float bloom = 1.0 + 0.6 * hi + uFlash * max(emphasis, 0.0) * 1.1;
     gl_PointSize = mix(uSizeNear, uSizeFar, depth01) * uPixelRatio * bloom;
     gl_Position = projectionMatrix * mv;
   }
@@ -58,15 +64,18 @@ const FRAG = /* glsl */ `
   uniform float uEmphasisGain;
   uniform highp float uFlash;  // precision pinned to match the vertex shader
   uniform vec3 uFlashColor;
+  uniform vec3 uPickedColor;
   varying float vInk;
   varying float vEmph;
+  varying float vPicked;
 
   void main() {
     float d = length(gl_PointCoord - vec2(0.5));
     float alpha = 1.0 - smoothstep(0.44, 0.5, d);   // soft round dot (AA edge)
     if (alpha <= 0.0) discard;
-    float ink = clamp(vInk + uEmphasisGain * vEmph, 0.0, 1.0);
+    float ink = clamp(vInk + uEmphasisGain * max(vEmph, vPicked), 0.0, 1.0);
     vec3 col = mix(vec3(ink), uFlashColor, clamp(vEmph, 0.0, 1.0) * uFlash);
+    col = mix(col, uPickedColor, vPicked);          // extracted points read as locked-in
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -83,6 +92,10 @@ export class HalftoneCloud {
       'emphasis',
       new THREE.BufferAttribute(new Float32Array(positions.length / 3), 1),
     );
+    this.geometry.setAttribute(
+      'picked',
+      new THREE.BufferAttribute(new Float32Array(positions.length / 3), 1),
+    );
 
     this.material = new THREE.ShaderMaterial({
       uniforms: {
@@ -96,6 +109,7 @@ export class HalftoneCloud {
         uEmphasisGain: { value: opts.emphasisGain ?? 0.85 },
         uFlash: { value: 0 },
         uFlashColor: { value: new THREE.Color(opts.flashColor ?? 0xffcf6a) },
+        uPickedColor: { value: new THREE.Color(opts.pickedColor ?? 0x6fe0b8) },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -130,6 +144,13 @@ export class HalftoneCloud {
   /** Momentary "found" bloom intensity (0..1) on emphasized points. */
   setFlash(v: number): void {
     this.material.uniforms.uFlash!.value = v;
+  }
+
+  /** In-place per-point picked flag (1 = extracted). */
+  updatePicked(picked: Float32Array): void {
+    const attr = this.geometry.getAttribute('picked') as THREE.BufferAttribute;
+    (attr.array as Float32Array).set(picked);
+    attr.needsUpdate = true;
   }
 
   /** Keep depth normalization centered on the orbit target each frame. */

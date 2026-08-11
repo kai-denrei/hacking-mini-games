@@ -23,20 +23,41 @@ export interface RoadmapPhase {
 }
 
 export const STATUS =
-  'Building CONSTELLATION — game 1 of the series. Generator is done and verified; ' +
-  'a generated board now renders and resolves into its hidden glyph on alignment. ' +
-  'Next up is the real gameplay loop (extraction, sweep, win/lose).';
+  'CONSTELLATION — game 1 of the series — is now playable end to end: find the hidden ' +
+  'angle, then extract the glyph’s points while dodging tripwires and the scan sweep, ' +
+  'before the timer runs out. Next: Phase-1/2 polish and the other games.';
 
 export const MILESTONES: Milestone[] = [
   {
     build: 'live',
     date: '2026-08-11',
+    title: 'Phase 2 — extraction, sweep, win/lose',
+    added: [
+      'Click the glyph’s points while aligned to extract them; all points → lock solved, all locks → win.',
+      'TRIP hazards cost a strike + 10% of the timer (3 strikes = alarm); NOISE clicks are duds.',
+      'A scan wavefront sweeps the cloud; a pass caught mid-extraction while misaligned wipes a point back. Axis drift on D4+.',
+      'HUD: depleting timer, strike pips, extraction progress; win / alarm / timeout end screens with margin + extracted keys.',
+    ],
+  },
+  {
+    build: null,
+    date: '2026-08-11',
+    title: 'Phase 1 polish',
+    added: [
+      'θ_lock soft-snap with hysteresis (magnetic assist, hands-off).',
+      'Coherence → per-point brightness; the noise dims as a lock forms so the glyph reads cleanly.',
+      'A gold “found” shine (color tint + bloom) fires the moment a lock completes.',
+      'Diegetic dotted-arc coherence meter.',
+    ],
+  },
+  {
+    build: null,
+    date: '2026-08-11',
     title: 'Board wired into the renderer',
     added: [
       'A generated CONSTELLATION board renders as a halftone point cloud.',
       'Orbit-to-align: as your view nears a hidden axis, that lock’s signal contracts and the glyph resolves out of the noise.',
-      'Live coherence readout (top-left) + R to reseed.',
-      'This dev-log panel — click the version badge to open it.',
+      'R to reseed; this dev-log panel on the version badge.',
     ],
   },
   {
@@ -76,22 +97,22 @@ export const MILESTONES: Milestone[] = [
 export const ROADMAP: RoadmapPhase[] = [
   {
     phase: 'Now',
-    note: 'CONSTELLATION Phase 1',
+    note: 'CONSTELLATION full loop',
     items: [
       { label: 'Board renders + resolves on alignment', done: true },
-      { label: 'θ_lock soft-snap with hysteresis (no flicker at the boundary)' },
-      { label: 'Coherence → brightness/tone, diegetic dotted-arc meter (no HUD text)' },
+      { label: 'θ_lock soft-snap; coherence → brightness; found-shine', done: true },
+      { label: 'Extraction, sweep + axis drift, TRIP strikes, win/lose + scoring', done: true },
+      { label: 'Trace-stroke extraction variant + audio (coherence tone, ticks)' },
+      { label: 'SKILL modifiers (hint band, TRIP shimmer) + OVERRIDE + exfil rule' },
     ],
   },
   {
     phase: 'Next',
-    note: 'CONSTELLATION Phase 2 + full loop',
+    note: 'Harden + present',
     items: [
-      { label: 'Extraction: select/trace the glyph points while aligned' },
-      { label: 'Sweep wavefront pressure + axis drift (D4+)' },
-      { label: 'TRIP hits → 3-strike critical loss; soft loss on timeout' },
-      { label: 'Win, margin scoring, extracted-glyph payload (intel out)' },
-      { label: 'SKILL modifiers (coherence meter, hint band, TRIP shimmer) + OVERRIDE' },
+      { label: 'Difficulty/skill/seed selector UI (PLAN screen)' },
+      { label: 'Feel tuning pass (extraction radius, sweep pressure, drift)' },
+      { label: 'Deterministic replay (seed + input log) as an acceptance test' },
     ],
   },
   {

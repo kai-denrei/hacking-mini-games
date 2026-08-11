@@ -55,3 +55,13 @@ export function randDir(rng: RNG): Vec3 {
 export function randInBall(rng: RNG, radius: number): Vec3 {
   return scale(randDir(rng), radius * Math.cbrt(rng()));
 }
+
+/** Rotate v around a unit-ish axis by angle (radians) — Rodrigues' formula. */
+export function rotateAroundAxis(v: Vec3, axis: Vec3, angle: number): Vec3 {
+  const k = normalize(axis);
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const kv = cross(k, v);
+  const kd = dot(k, v) * (1 - c);
+  return [v[0] * c + kv[0] * s + k[0] * kd, v[1] * c + kv[1] * s + k[1] * kd, v[2] * c + kv[2] * s + k[2] * kd];
+}

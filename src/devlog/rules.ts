@@ -14,21 +14,21 @@ export interface GameRules {
 export const RULES: GameRules[] = [
   {
     name: 'CONSTELLATION',
-    status: 'phase 1',
+    status: 'playable',
     fantasy:
       'An encrypted datastructure hangs in space as a cloud of noise. From exactly one viewpoint the noise collapses into a key. Find the angle, read the key, extract it without touching the tripwires.',
     how: [
       'Orbit the cloud (drag). One hidden viewing angle makes the scattered dots snap into a glyph.',
       'As you near that angle the signal dots contract and brighten; within tolerance the view soft-snaps and the glyph is legible. The dotted arc fills toward a lock.',
-      'Extract (planned): while aligned, select every glyph point to lift the key. A NOISE dot is a dud (small time cost); a TRIP dot — sitting just outside the glyph outline — is a hazard hit.',
-      'Harder boards hide several glyphs on different axes (multi-lock) — solve them in any order.',
+      'While aligned, click every glyph point to extract it (they light up). All points solves the lock; a gold shine confirms the key.',
+      'A NOISE click is a dud (small time cost); a TRIP dot — just outside the glyph outline — is a hazard hit. Harder boards hide several glyphs on different axes; solve them in any order.',
     ],
     fail: [
       'Critical: 3 TRIP hits trips the alarm.',
       'Soft: the run timer expires — attempt lost, retry allowed. You can jack out any time.',
       'Pressure: a scan wavefront sweeps the cloud; caught mid-extraction while misaligned, it wipes a recovered point. Top tiers slowly drift the axis.',
     ],
-    note: 'This build: Phase 1 (find the angle) only. Extraction, sweep and scoring are next.',
+    note: 'Playable end to end. Still to come: trace-stroke variant, audio, and SKILL/OVERRIDE modifiers.',
   },
   {
     name: 'TRANSFER',

@@ -2,22 +2,29 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HalftoneCloud } from '../../render/halftone';
 import { generateBoard, coherence, TIERS, type Board, type CloudPoint } from './generate.ts';
+import { ConstellationGame } from './game.ts';
 import { CONSTELLATION_GLYPHS, type Glyph } from '../../glyphs/bank.ts';
-import { type Vec3, dot, sub, scale, normalize, angleDeg } from '../../math/vec3.ts';
+import {
+  type Vec3,
+  dot,
+  sub,
+  scale,
+  normalize,
+  angleDeg,
+  rotateAroundAxis,
+  randDir,
+} from '../../math/vec3.ts';
+import { makeRng, type RNG } from '../../engine/rng.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
 
-// CONSTELLATION Phase 1 — "find the angle". Renders a generated board and, as
-// the view nears a lock's hidden axis: (1) that lock's SIGNAL contracts toward
-// the glyph plane, (2) those points brighten (emphasis), (3) within θ_lock the
-// view soft-snaps to exact alignment (magnetic assist, with hysteresis so it
-// doesn't flicker at the boundary). A diegetic dotted-arc meter shows coherence
-// (SKILL >= 1). No extraction / sweep / scoring yet.
+// CONSTELLATION — Phase 1 (find the angle) + Phase 2 (extract). Orbit to align;
+// when a lock resolves, click its glyph points to extract them. Avoid TRIP
+// hazards, beat the sweep + timer. See game.ts for the rules.
 
 const smoothstep = (a: number, b: number, x: number): number => {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
-
 const glyphByName = (name: string): Glyph => {
   const g = CONSTELLATION_GLYPHS.find((x) => x.name === name);
   if (!g) throw new Error(`glyph ${name} not found`);
@@ -36,12 +43,16 @@ interface LockView {
 
 export interface Mounted {
   regenerate(difficulty: Difficulty, seed: string): void;
-  /** Snap the camera to a lock's axis (test/debug helper). */
   alignLock(index: number): void;
+  /** test/debug: extract `count` signal points of lock `l`. */
+  debugExtract(l: number, count: number): void;
+  /** test/debug: extract everything → WON. */
+  debugSolve(): void;
   dispose(): void;
 }
 
 const ARC_DOTS = 30;
+const TIMER_DOTS = 32;
 
 export function mountConstellation(
   canvas: HTMLCanvasElement,
@@ -55,7 +66,7 @@ export function mountConstellation(
   const target = new THREE.Vector3(0, 0, 0);
 
   const FRUSTUM_HALF = 1.12;
-  const FLASH_DUR = 0.7; // seconds of "found" shine
+  const FLASH_DUR = 0.7;
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
   camera.position.set(0, 0, 4);
   camera.lookAt(target);
@@ -65,65 +76,113 @@ export function mountConstellation(
   controls.enablePan = false;
   controls.target.copy(target);
 
-  let dragging = false;
-  controls.addEventListener('start', () => {
-    dragging = true;
-  });
-  controls.addEventListener('end', () => {
-    dragging = false;
-  });
+  const raycaster = new THREE.Raycaster();
+  raycaster.params.Points!.threshold = 0.055;
 
-  // ── diegetic dotted-arc coherence meter (SKILL >= 1) + minimal hint ─────────
+  // ── overlay DOM ─────────────────────────────────────────────────────────
   const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag: string, css: string): HTMLElement => {
+    const e = document.createElement(tag);
+    e.style.cssText = css;
+    document.body.appendChild(e);
+    return e;
+  };
+  const mono = 'ui-monospace,SFMono-Regular,Menlo,monospace';
+
+  // coherence arc (SKILL >= 1)
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '0 0 220 130');
   svg.style.cssText =
     'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);width:220px;height:130px;pointer-events:none';
   const arcDots: SVGCircleElement[] = [];
-  const cx = 110;
-  const cy = 120;
-  const R = 96;
   for (let i = 0; i < ARC_DOTS; i++) {
-    const a = Math.PI * (1 - i / (ARC_DOTS - 1)); // π (left) → 0 (right)
+    const a = Math.PI * (1 - i / (ARC_DOTS - 1));
     const c = document.createElementNS(NS, 'circle');
-    c.setAttribute('cx', String(cx + R * Math.cos(a)));
-    c.setAttribute('cy', String(cy - R * Math.sin(a)));
+    c.setAttribute('cx', String(110 + 96 * Math.cos(a)));
+    c.setAttribute('cy', String(120 - 96 * Math.sin(a)));
     c.setAttribute('r', '2.6');
     c.setAttribute('fill', '#2a2a34');
     svg.appendChild(c);
     arcDots.push(c);
   }
   const glyphLabel = document.createElementNS(NS, 'text');
-  glyphLabel.setAttribute('x', String(cx));
-  glyphLabel.setAttribute('y', String(cy - 8));
+  glyphLabel.setAttribute('x', '110');
+  glyphLabel.setAttribute('y', '112');
   glyphLabel.setAttribute('text-anchor', 'middle');
   glyphLabel.setAttribute('fill', '#e8c06a');
-  glyphLabel.setAttribute(
-    'style',
-    'font:11px ui-monospace,Menlo,monospace;letter-spacing:.15em;opacity:0',
-  );
+  glyphLabel.setAttribute('style', `font:11px ${mono};letter-spacing:.15em;opacity:0`);
   svg.appendChild(glyphLabel);
   if (initial.skill >= 1) document.body.appendChild(svg);
 
-  const hint = document.createElement('div');
-  hint.style.cssText =
-    'position:fixed;left:12px;bottom:12px;font:11px ui-monospace,Menlo,monospace;color:#55555f;pointer-events:none';
-  document.body.appendChild(hint);
+  // timer (top center, depleting dot row)
+  const timerSvg = document.createElementNS(NS, 'svg');
+  timerSvg.setAttribute('viewBox', `0 0 ${TIMER_DOTS * 7} 12`);
+  timerSvg.style.cssText =
+    'position:fixed;left:50%;top:12px;transform:translateX(-50%);width:224px;height:12px;pointer-events:none';
+  const timerDots: SVGCircleElement[] = [];
+  for (let i = 0; i < TIMER_DOTS; i++) {
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('cx', String(i * 7 + 3.5));
+    c.setAttribute('cy', '6');
+    c.setAttribute('r', '2.4');
+    c.setAttribute('fill', '#2a2a34');
+    timerSvg.appendChild(c);
+    timerDots.push(c);
+  }
+  document.body.appendChild(timerSvg);
+
+  // strikes (top right)
+  const strikes = el(
+    'div',
+    `position:fixed;top:10px;right:12px;display:flex;gap:6px;font:13px ${mono};color:#5a5a64;pointer-events:none`,
+  );
+  const pips: HTMLElement[] = [0, 1, 2].map(() => {
+    const p = document.createElement('span');
+    p.textContent = '✕';
+    strikes.appendChild(p);
+    return p;
+  });
+
+  const progress = el(
+    'div',
+    `position:fixed;left:50%;top:30px;transform:translateX(-50%);font:11px ${mono};color:#8fd0b6;pointer-events:none;opacity:0`,
+  );
+  const hint = el(
+    'div',
+    `position:fixed;left:12px;bottom:12px;font:11px ${mono};color:#55555f;pointer-events:none`,
+  );
+  const reticle = el(
+    'div',
+    'position:fixed;width:16px;height:16px;border:1px solid #6fe0b8;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .1s',
+  );
+  const vignette = el(
+    'div',
+    'position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 120px 20px #d0403a;opacity:0;transition:opacity .3s',
+  );
+  const overlay = el(
+    'div',
+    `position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,8,13,.55);font:${mono};text-align:center;pointer-events:none`,
+  );
 
   let board!: Board;
   let base!: Float32Array;
   let live!: Float32Array;
   let emph!: Float32Array;
-  let isSignal!: Uint8Array; // 1 where a point is SIGNAL (any lock)
+  let picked!: Float32Array;
+  let isSignal!: Uint8Array;
   let cloud: HalftoneCloud | null = null;
   let lockViews: LockView[] = [];
   let thetaLock = 5;
-  let engaged = false; // soft-snap state (declared before build(), which resets it)
+  let game!: ConstellationGame;
+  let driftRng: RNG = makeRng('drift');
+  let engaged = false;
   let prevEngaged = false;
   let flashStart = -1e9;
 
   function build(difficulty: Difficulty, seed: string): void {
     board = generateBoard(difficulty, seed);
+    game = new ConstellationGame(board);
+    driftRng = makeRng(`${seed}:drift`);
     thetaLock = TIERS[difficulty].thetaLockDeg;
     const n = board.points.length;
     base = new Float32Array(n * 3);
@@ -134,6 +193,7 @@ export function mountConstellation(
     });
     live = base.slice();
     emph = new Float32Array(n);
+    picked = new Float32Array(n);
     isSignal = new Uint8Array(n);
 
     lockViews = board.locks.map((lock) => {
@@ -145,13 +205,12 @@ export function mountConstellation(
           signalIdx.push(i);
           signalPts.push(pt);
           isSignal[i] = 1;
-          const d = dot(pt.pos, lock.axis);
-          flat.set(i, sub(pt.pos, scale(lock.axis, d)));
+          flat.set(i, sub(pt.pos, scale(lock.axis, dot(pt.pos, lock.axis))));
         }
       });
       return {
         axis: lock.axis,
-        axisV3: new THREE.Vector3(lock.axis[0], lock.axis[1], lock.axis[2]),
+        axisV3: new THREE.Vector3(...lock.axis),
         glyph: glyphByName(lock.glyph),
         signalIdx,
         signalPts,
@@ -175,8 +234,10 @@ export function mountConstellation(
     });
     scene.add(cloud.points);
 
-    hint.textContent = `D${difficulty} · ${seed} · ${board.locks.length} glyph(s) · drag · scroll · R`;
+    hint.textContent = `D${difficulty} · ${seed} · ${board.locks.length} lock(s) · drag to orbit · click to extract · R`;
+    overlay.style.display = 'none';
     engaged = false;
+    prevEngaged = false;
   }
 
   build(initial.difficulty, initial.seed);
@@ -195,21 +256,111 @@ export function mountConstellation(
   window.addEventListener('resize', resize);
   resize();
 
-  // soft-snap scratch (hysteresis: engage inside θ_lock, release past 1.6×)
+  // rotate a whole lock (points + axis) by a small drift each sweep (D4+)
+  function driftLock(l: number): void {
+    const lv = lockViews[l];
+    if (!lv) return;
+    const ang = (2 * Math.PI) / 180 * driftRng();
+    const ax = randDir(driftRng);
+    lv.axis = normalize(rotateAroundAxis(lv.axis, ax, ang));
+    lv.axisV3.set(...lv.axis);
+    board.points.forEach((pt, i) => {
+      if (pt.lock !== l) return;
+      pt.pos = rotateAroundAxis(pt.pos, ax, ang);
+      base[i * 3] = pt.pos[0];
+      base[i * 3 + 1] = pt.pos[1];
+      base[i * 3 + 2] = pt.pos[2];
+    });
+    lv.flat.clear();
+    for (const i of lv.signalIdx) {
+      const p = board.points[i]!.pos;
+      lv.flat.set(i, sub(p, scale(lv.axis, dot(p, lv.axis))));
+    }
+  }
+
+  // ── input: click-to-extract (small pointer move) vs drag-to-orbit ─────────
+  let downX = 0;
+  let downY = 0;
+  let mouseX = -1;
+  let mouseY = -1;
+  const ndc = (x: number, y: number): [number, number] => {
+    const r = canvas.getBoundingClientRect();
+    return [((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1];
+  };
+  function pickIndex(x: number, y: number): number {
+    if (!cloud) return -1;
+    const [nx, ny] = ndc(x, y);
+    raycaster.setFromCamera(new THREE.Vector2(nx, ny), camera);
+    const hits = raycaster.intersectObject(cloud.points, false);
+    if (!hits.length) return -1;
+    hits.sort((a, b) => (a.distanceToRay ?? 9) - (b.distanceToRay ?? 9));
+    return hits[0]!.index ?? -1;
+  }
+  let bestLock = -1;
+  canvas.addEventListener('pointerdown', (e) => {
+    downX = e.clientX;
+    downY = e.clientY;
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
+  canvas.addEventListener('pointerup', (e) => {
+    const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
+    if (moved > 5 || !engaged || game.over || bestLock < 0) return; // a drag, or not aligned
+    const idx = pickIndex(e.clientX, e.clientY);
+    if (idx < 0) return;
+    const outcome = game.select(idx, bestLock);
+    if (outcome === 'trip') {
+      vignette.style.opacity = '0.9';
+      setTimeout(() => (vignette.style.opacity = '0'), 60);
+    }
+  });
+
+  // soft-snap scratch
   const tmpDir = new THREE.Vector3();
   const qStep = new THREE.Quaternion();
   const qTo = new THREE.Quaternion();
   const qId = new THREE.Quaternion();
 
+  function showOverlay(): void {
+    const r = game.result();
+    let color = '#8fd0b6';
+    let title = '';
+    let sub = '';
+    if (game.phase === 'WON') {
+      color = '#8fd0b6';
+      title = '◆ EXTRACTED';
+      sub = `keys: ${r.keys.join(' · ')}\nmargin ${r.margin.toFixed(0)} · ${r.trips} strike(s)`;
+    } else if (game.phase === 'LOST_CRIT') {
+      color = '#d0605a';
+      title = '⚠ ALARM';
+      sub = 'intrusion traced — three tripwires';
+    } else {
+      color = '#e0b070';
+      title = '⌛ SIGNAL LOST';
+      sub = 'the run timed out';
+    }
+    overlay.innerHTML =
+      `<div style="font-size:22px;letter-spacing:.2em;color:${color}">${title}</div>` +
+      `<div style="font-size:12px;color:#9a9aa6;white-space:pre-line">${sub}</div>` +
+      `<div style="font-size:11px;color:#55555f;margin-top:8px">press R to run again</div>`;
+    overlay.style.display = 'flex';
+  }
+
+  let lastT = performance.now();
   let raf = 0;
   function loop(): void {
-    controls.update();
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - lastT) / 1000);
+    lastT = now;
 
+    controls.update();
     const cp = camera.position;
     const viewDir = normalize([cp.x - target.x, cp.y - target.y, cp.z - target.z]);
 
     let best = 0;
-    let bestLock = -1;
+    bestLock = -1;
     let nearestAngle = 180;
     lockViews.forEach((lv, i) => {
       lv.coherence = coherence(lv.signalPts, lv.glyph, viewDir);
@@ -221,7 +372,7 @@ export function mountConstellation(
       if (ang < nearestAngle) nearestAngle = ang;
     });
 
-    // contraction + emphasis; track the strongest lock this frame
+    // contraction + emphasis; dim noise as a lock forms
     live.set(base);
     emph.fill(0);
     let globalLock = 0;
@@ -240,47 +391,88 @@ export function mountConstellation(
         emph[i] = ease;
       }
     }
-    // dim the noise as a lock forms, so the glyph reads cleanly
     if (globalLock > 0.001) {
       const suppress = 0.85 * globalLock;
       for (let i = 0; i < emph.length; i++) if (!isSignal[i]) emph[i] = -suppress;
     }
+
+    // game tick (timer, sweep, wipe) — aligned gates extraction
+    const aligned = engaged && best > 0.6;
+    const { wrapped } = game.tick(dt, aligned, bestLock);
+    if (wrapped && game.drift && bestLock >= 0) driftLock(bestLock);
+
+    // sweep scan-line glow (RUN only)
+    if (game.phase === 'RUN' && game.tSweep) {
+      const sweepY = -1 + 2 * game.sweepT;
+      const band = 0.14;
+      for (let i = 0; i < emph.length; i++) {
+        const dy = Math.abs(live[i * 3 + 1]! - sweepY);
+        if (dy < band) emph[i] = emph[i]! + (1 - dy / band) * 0.7;
+      }
+    }
+
+    // hover highlight + reticle
+    let hoverIdx = -1;
+    if (engaged && !game.over && mouseX >= 0) {
+      hoverIdx = pickIndex(mouseX, mouseY);
+      if (hoverIdx >= 0) emph[hoverIdx] = emph[hoverIdx]! + 0.5;
+      reticle.style.opacity = '1';
+      reticle.style.left = `${mouseX}px`;
+      reticle.style.top = `${mouseY}px`;
+    } else {
+      reticle.style.opacity = '0';
+    }
+
+    // picked (extracted) points
+    picked.fill(0);
+    for (const set of game.extracted) for (const i of set) picked[i] = 1;
+
     cloud!.updatePositions(live);
     cloud!.updateEmphasis(emph);
+    cloud!.updatePicked(picked);
     cloud!.sync(camera, controls.target, renderer.getPixelRatio());
 
-    // soft-snap (magnetic assist) toward the nearest axis, hands-off only
-    if (!engaged && nearestAngle < thetaLock && !dragging) engaged = true;
-    else if (engaged && (nearestAngle > thetaLock * 1.6 || dragging)) engaged = false;
-    if (engaged && !dragging && bestLock >= 0) {
+    // soft-snap (hands-off)
+    if (!engaged && nearestAngle < thetaLock && !game.over) engaged = true;
+    else if (engaged && nearestAngle > thetaLock * 1.6) engaged = false;
+    if (engaged && bestLock >= 0) {
       const dist = camera.position.distanceTo(target);
       tmpDir.set(viewDir[0], viewDir[1], viewDir[2]);
       qTo.setFromUnitVectors(tmpDir, lockViews[bestLock]!.axisV3);
-      qStep.copy(qId).slerp(qTo, 0.18); // fraction of the way this frame
+      qStep.copy(qId).slerp(qTo, 0.16);
       tmpDir.applyQuaternion(qStep);
       camera.position.copy(target).addScaledVector(tmpDir, dist);
     }
 
-    // "found" shine — fires once when a lock engages, fades over FLASH_DUR
-    const nowSec = performance.now() / 1000;
+    // found-shine
+    const nowSec = now / 1000;
     if (engaged && !prevEngaged) flashStart = nowSec;
     prevEngaged = engaged;
-    const flashVal = Math.max(0, 1 - (nowSec - flashStart) / FLASH_DUR);
-    cloud!.setFlash(flashVal);
+    cloud!.setFlash(Math.max(0, 1 - (nowSec - flashStart) / FLASH_DUR));
 
-    // meter
+    // ── HUD ────────────────────────────────────────────────────────────────
     if (initial.skill >= 1) {
       const lit = Math.round(best * ARC_DOTS);
-      for (let i = 0; i < ARC_DOTS; i++) {
+      for (let i = 0; i < ARC_DOTS; i++)
         arcDots[i]!.setAttribute('fill', i < lit ? (engaged ? '#e8c06a' : '#5dcaa5') : '#2a2a34');
-      }
       if (engaged && bestLock >= 0) {
         glyphLabel.textContent = `⟡ ${lockViews[bestLock]!.glyph.name}`;
         glyphLabel.style.opacity = '1';
-      } else {
-        glyphLabel.style.opacity = '0';
-      }
+      } else glyphLabel.style.opacity = '0';
     }
+
+    const frac = game.timeLeft / game.tRun;
+    const litT = Math.ceil(frac * TIMER_DOTS);
+    const tcol = game.phase === 'RUN' ? (frac < 0.2 ? '#d0605a' : '#5dcaa5') : '#3a3a44';
+    for (let i = 0; i < TIMER_DOTS; i++) timerDots[i]!.setAttribute('fill', i < litT ? tcol : '#20202a');
+    pips.forEach((p, i) => (p.style.color = i < game.trips ? '#d0605a' : '#3a3a44'));
+
+    if (engaged && bestLock >= 0 && !game.over) {
+      progress.textContent = `EXTRACT ${game.extractedCount(bestLock)} / ${board.locks[bestLock]!.signalCount}`;
+      progress.style.opacity = '1';
+    } else progress.style.opacity = '0';
+
+    if (game.over && overlay.style.display === 'none') showOverlay();
 
     renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
@@ -288,23 +480,35 @@ export function mountConstellation(
   loop();
 
   return {
-    regenerate(difficulty: Difficulty, seed: string) {
+    regenerate(difficulty, seed) {
       build(difficulty, seed);
     },
-    alignLock(index: number) {
+    alignLock(index) {
       const lv = lockViews[index];
       if (!lv) return;
       const dist = camera.position.distanceTo(target);
       camera.position.copy(target).addScaledVector(lv.axisV3, dist);
       controls.update();
     },
+    debugExtract(l, count) {
+      const lv = lockViews[l];
+      if (!lv) return;
+      let k = 0;
+      for (const i of lv.signalIdx) {
+        if (k++ >= count) break;
+        game.select(i, l);
+      }
+    },
+    debugSolve() {
+      for (let l = 0; l < lockViews.length; l++)
+        for (const i of lockViews[l]!.signalIdx) game.select(i, l);
+    },
     dispose() {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       controls.dispose();
       cloud?.dispose();
-      svg.remove();
-      hint.remove();
+      [svg, timerSvg, strikes, progress, hint, reticle, vignette, overlay].forEach((n) => n.remove());
       renderer.dispose();
     },
   };
