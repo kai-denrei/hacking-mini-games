@@ -9,7 +9,10 @@ import { captureTime, pDetect, canTraverse, type Board, type Owner } from './mod
 // FREEZE halts the tracer. All randomness comes from the seeded stream, so the
 // same seed + input log replays identically (spec §9).
 
-export type Phase = 'PLAN' | 'RUN' | 'WON' | 'LOST_SOFT' | 'LOST_CRIT';
+// PLAN → RUN (capture toward a registry) → EXFIL (registry taken, alarm tripped:
+// retreat to ENTRY) → WON / LOST. Grabbing the registry always spawns the
+// tracer, so every run ends in a race home.
+export type Phase = 'PLAN' | 'RUN' | 'EXFIL' | 'WON' | 'LOST_SOFT' | 'LOST_CRIT';
 
 const FORTIFY_MUL = 2.5; // tracer time over a fortified node
 const OFF_TERRITORY_MUL = 2; // tracer at half speed through uncaptured nodes
@@ -17,6 +20,7 @@ const ALARM_SPEED = 1.25;
 const SPAM_SLOW = 0.6;
 const SPAM_DUR = 10;
 const FREEZE_DUR = 5;
+const RETREAT_MUL = 0.7; // player hop time on the way out, × tracerBase (a shade faster than the tracer)
 
 interface Tracer {
   node: number; // current position
@@ -34,6 +38,9 @@ export class TraceGame {
   fortified = new Set<number>();
   capturing: { node: number; elapsed: number; total: number } | null = null;
   tracer: Tracer | null = null;
+  /** EXFIL: where the player currently is on the way back to ENTRY. */
+  playerAt: number;
+  moving: { to: number; elapsed: number; total: number } | null = null;
 
   nukes: number;
   freezes: number;
@@ -53,6 +60,7 @@ export class TraceGame {
     this.freezes = board.params.freezes;
     this.owner = board.nodes.map((n) => (n.id === board.entry ? 'P' : 'SYS'));
     this.captured.add(board.entry);
+    this.playerAt = board.entry;
     this.rng = makeRng(`${board.seed}:trace-roll:${board.difficulty}`);
   }
 
@@ -104,6 +112,20 @@ export class TraceGame {
     this.freezeUntil = this.matchElapsed + FREEZE_DUR;
     return true;
   }
+  /** EXFIL: hop the player one owned node toward home. Reaching ENTRY wins. */
+  retreat(node: number): boolean {
+    if (this.phase !== 'EXFIL' || this.moving || this.owner[node] !== 'P') return false;
+    if (!this.board.edges.some((e) => canTraverse(e, this.playerAt, node))) return false;
+    this.moving = { to: node, elapsed: 0, total: this.board.params.tracerBase * RETREAT_MUL };
+    return true;
+  }
+  /** Owned nodes the player can retreat onto right now (EXFIL). */
+  retreatable(): number[] {
+    if (this.phase !== 'EXFIL') return [];
+    const out: number[] = [];
+    for (const n of this.board.nodes) if (this.owner[n.id] === 'P' && this.board.edges.some((e) => canTraverse(e, this.playerAt, n.id))) out.push(n.id);
+    return out;
+  }
   /** Jack out — soft loss, no critical consequence. */
   cancel(): void {
     if (!this.over) this.phase = 'LOST_SOFT';
@@ -116,7 +138,11 @@ export class TraceGame {
     const type = this.board.nodes[node]!.type;
     if (type === 'STORE') this.loot++;
     if (type === 'REGISTRY') {
-      this.phase = 'WON';
+      // Second act: the alarm trips and the tracer races you home. Win by
+      // retreating to ENTRY before it traces you there.
+      this.playerAt = node;
+      this.phase = 'EXFIL';
+      this.trigger(false);
       return;
     }
     if (silent) return;
@@ -195,16 +221,28 @@ export class TraceGame {
 
   // ── main tick ───────────────────────────────────────────────────────────────
   tick(dt: number): void {
-    if (this.phase !== 'RUN') return;
+    if (this.phase !== 'RUN' && this.phase !== 'EXFIL') return;
     this.matchElapsed += dt;
 
-    if (this.capturing) {
+    if (this.phase === 'RUN' && this.capturing) {
       this.capturing.elapsed += dt;
       if (this.capturing.elapsed >= this.capturing.total) {
         const node = this.capturing.node;
         this.capturing = null;
         this.claim(node, false);
-        if (this.over) return;
+        if (this.over) return; // if this flipped us to EXFIL, fall through to tick the tracer
+      }
+    }
+
+    if (this.phase === 'EXFIL' && this.moving) {
+      this.moving.elapsed += dt;
+      if (this.moving.elapsed >= this.moving.total) {
+        this.playerAt = this.moving.to;
+        this.moving = null;
+        if (this.playerAt === this.board.entry) {
+          this.phase = 'WON';
+          return;
+        }
       }
     }
 
