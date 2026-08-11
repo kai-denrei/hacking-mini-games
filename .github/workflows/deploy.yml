@@ -1,0 +1,36 @@
+name: Deploy to GitHub Pages
+
+# Builds the Vite app with the Pages sub-path base and publishes dist/ to the
+# gh-pages branch on every push to main, so the live site stays in sync with the
+# repo (previously deploys were manual and drifted).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          DEPLOY_BASE: /hacking-mini-games/
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages

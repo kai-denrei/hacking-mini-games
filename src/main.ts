@@ -83,6 +83,7 @@ function mountGame(name: GameName): void {
     console.error(err);
     showError(err);
   }
+  updateLadderHud();
 }
 
 function reseed(): void {
@@ -94,9 +95,16 @@ function reseed(): void {
       // Advance the ladder only when a match has actually resolved: a win climbs
       // a rung, a strict loss reverts to the shallow end. A tie (or reseeding
       // mid-match) replays the same rung.
-      if (g.phase === 'WON') rung = Math.min(LADDER.length - 1, rung + 1);
-      else if (g.phase === 'LOST' && g.result && g.result.p < g.result.e) rung = 0;
+      let trend: '' | 'up' | 'down' = '';
+      if (g.phase === 'WON') {
+        if (rung < LADDER.length - 1) rung++;
+        trend = 'up';
+      } else if (g.phase === 'LOST' && g.result && g.result.p < g.result.e) {
+        rung = 0;
+        trend = 'down';
+      }
       (current as DuelGame).regenerate(LADDER[rung]!, `${currentName}-${seq}`);
+      updateLadderHud(trend);
     } else {
       (current as SimpleGame).regenerate(CFG.difficulty, `${currentName}-${seq}`);
     }
@@ -118,6 +126,28 @@ resetBtn.style.cssText =
   'padding:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation';
 resetBtn.addEventListener('click', reseed);
 document.body.appendChild(resetBtn);
+
+// Ladder progress readout (duel games only) so the scaling difficulty is
+// visible: current rung + matchup, and which way the last result moved it.
+const ladderHud = document.createElement('div');
+ladderHud.style.cssText =
+  'position:fixed;top:9px;left:12px;z-index:2147483646;pointer-events:none;' +
+  'font:11px/1.5 ui-monospace,Menlo,monospace;color:#8a8a96';
+document.body.appendChild(ladderHud);
+
+function updateLadderHud(trend: '' | 'up' | 'down' = ''): void {
+  if (!DUEL.has(currentName)) {
+    ladderHud.style.display = 'none';
+    return;
+  }
+  ladderHud.style.display = 'block';
+  const s = LADDER[rung]!;
+  const arrow = trend === 'up' ? ' <span style="color:#8fd0b6">▲ climbed</span>' : trend === 'down' ? ' <span style="color:#d0605a">▼ reset</span>' : '';
+  ladderHud.innerHTML =
+    `<span style="color:#c2c2ce">LADDER ${rung + 1}/${LADDER.length}</span>${arrow}<br>` +
+    `you c${s.attacker} · host c${s.defender}<br>` +
+    `<span style="color:#5a5a64">win → climb · lose → reset</span>`;
+}
 
 const rel = location.pathname.startsWith(BASE) ? location.pathname.slice(BASE.length) : location.pathname.replace(/^\//, '');
 const startNum = parseInt(rel.replace(/\D/g, ''), 10);
