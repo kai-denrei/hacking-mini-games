@@ -23,13 +23,25 @@ export interface RoadmapPhase {
 }
 
 export const STATUS =
-  'Three games playable. CONSTELLATION (parallax point-cloud extraction), TRANSFER ' +
-  '(the circuit duel, abstract), and CIRCUIT (the same duel as a live lit circuit ' +
-  'board — angular traces, light flowing through them). Press 1 / 2 / 3 to switch; R reseeds.';
+  'Four games. CONSTELLATION (point-cloud extraction), TRANSFER (circuit duel), ' +
+  'CIRCUIT (the duel as a lit circuit board), and the experimental SHAPES — the ' +
+  'duel with Braille-Lab primitives: searching octahedra/cubes as terminals that ' +
+  'resolve into solving solids when claimed. Press 1 / 2 / 3 / 4; R reseeds.';
 
 export const MILESTONES: Milestone[] = [
   {
     build: 'live',
+    date: '2026-08-11',
+    title: 'SHAPES (game 4, experimental) — Modes × Primitives',
+    added: [
+      'Terminals are Braille-Lab “searching” primitives — octahedra on the left, cubes on the right (lat/long lattice + scan meridian).',
+      'A claimed cell resolves into the “solving” (rubik) primitive of the side that took it, in that side’s colour.',
+      'Ported the searching + solving modes and the cube/octahedron warps into src/render/primitives.ts; kept the lit angular traces + bloom.',
+      'Reuses TRANSFER’s mechanics. Press 4.',
+    ],
+  },
+  {
+    build: null,
     date: '2026-08-11',
     title: 'CIRCUIT (game 3) — lit circuit board',
     added: [

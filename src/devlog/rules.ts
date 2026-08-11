@@ -68,6 +68,18 @@ export const RULES: GameRules[] = [
     note: 'Game 3: TRANSFER’s mechanics with an angular, lit-circuit renderer (bloom + light-through-trace).',
   },
   {
+    name: 'SHAPES',
+    status: 'playable',
+    fantasy:
+      'The takeover duel as a lattice of thinking solids. The two sides are living primitives — octahedra searching on the left, cubes on the right — and every register you win resolves into your solid, turning like a solved puzzle.',
+    how: [
+      'Press 4 (experimental). Same rules as TRANSFER — choose a side, fire your terminals.',
+      'Your terminals are “searching” primitives; a cell you claim becomes a “solving” one (octahedron if you took the left side, cube if the right).',
+    ],
+    fail: ['Fail to hold the majority when the timer runs out.'],
+    note: 'Game 4: a Braille-Lab Modes × Primitives experiment over TRANSFER’s mechanics.',
+  },
+  {
     name: 'BREACH',
     status: 'planned',
     fantasy:
