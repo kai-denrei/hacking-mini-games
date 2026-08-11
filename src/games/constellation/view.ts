@@ -129,16 +129,14 @@ export function mountConstellation(
   timerSvg.setAttribute('viewBox', '0 0 48 48');
   timerSvg.style.cssText =
     'position:fixed;left:50%;top:10px;transform:translateX(-50%);width:46px;height:46px;pointer-events:none';
-  const timerRing = document.createElementNS(NS, 'circle');
-  for (const [k, v] of [['cx', '24'], ['cy', '24'], ['r', '21'], ['fill', 'none'], ['stroke', '#20202a'], ['stroke-width', '1']] as const)
-    timerRing.setAttribute(k, v);
-  const timerDisc = document.createElementNS(NS, 'circle');
-  timerDisc.setAttribute('cx', '24');
-  timerDisc.setAttribute('cy', '24');
-  timerDisc.setAttribute('r', '21');
-  timerDisc.setAttribute('fill', timerColor(1));
+  const timerRing = document.createElementNS(NS, 'circle'); // hollow: circumference only
+  timerRing.setAttribute('cx', '24');
+  timerRing.setAttribute('cy', '24');
+  timerRing.setAttribute('r', '21');
+  timerRing.setAttribute('fill', 'none');
+  timerRing.setAttribute('stroke', timerColor(1));
+  timerRing.setAttribute('stroke-width', '1.6');
   timerSvg.appendChild(timerRing);
-  timerSvg.appendChild(timerDisc);
   document.body.appendChild(timerSvg);
 
   // strikes (top right)
@@ -504,8 +502,8 @@ export function mountConstellation(
     }
 
     const frac = Math.max(0, game.timeLeft / game.tRun);
-    timerDisc.setAttribute('r', String(2 + 19 * frac)); // shrinks toward a dot
-    timerDisc.setAttribute('fill', timerColor(frac));
+    timerRing.setAttribute('r', String(3 + 18 * frac)); // thin ring shrinks
+    timerRing.setAttribute('stroke', timerColor(frac));
     pips.forEach((p, i) => (p.style.color = i < game.trips ? '#d0605a' : '#3a3a44'));
 
     if (engaged && bestLock >= 0 && !game.over) {
