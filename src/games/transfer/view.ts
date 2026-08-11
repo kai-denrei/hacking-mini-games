@@ -53,7 +53,10 @@ export function mountTransfer(
   renderer.setClearColor(0x08080d, 1);
   const scene = new THREE.Scene();
 
-  const FRUSTUM_HALF = 1.06;
+  // Fit the camera to the circuit so the edge terminals are always on-screen,
+  // whatever the window aspect (letterbox rather than clip).
+  const CONTENT_W = 1.46; // half-width to keep visible (terminals at ±1.32)
+  const CONTENT_H = 1.04; // half-height (budget dots at ±0.99)
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
   camera.position.set(0, 0, 4);
   camera.lookAt(0, 0, 0);
@@ -104,10 +107,12 @@ export function mountTransfer(
     const h = window.innerHeight;
     renderer.setSize(w, h);
     const aspect = w / h;
-    camera.left = -FRUSTUM_HALF * aspect;
-    camera.right = FRUSTUM_HALF * aspect;
-    camera.top = FRUSTUM_HALF;
-    camera.bottom = -FRUSTUM_HALF;
+    // top grows on narrow windows so width still covers CONTENT_W (fit-contain)
+    const top = Math.max(CONTENT_H, CONTENT_W / aspect);
+    camera.top = top;
+    camera.bottom = -top;
+    camera.right = top * aspect;
+    camera.left = -top * aspect;
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize);
