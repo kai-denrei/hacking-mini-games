@@ -23,13 +23,34 @@ export interface RoadmapPhase {
 }
 
 export const STATUS =
-  'CONSTELLATION — game 1 of the series — is now playable end to end: find the hidden ' +
-  'angle, then extract the glyph’s points while dodging tripwires and the scan sweep, ' +
-  'before the timer runs out. Next: Phase-1/2 polish and the other games.';
+  'CONSTELLATION (game 1) is playable end to end. Game 2 — TRANSFER, the Paradroid ' +
+  'circuit-takeover duel — has begun: its rules engine (pulse simulator, AI, ' +
+  'solution-first generator) is built and verified; rendering + play come next.';
 
 export const MILESTONES: Milestone[] = [
   {
     build: 'live',
+    date: '2026-08-11',
+    title: 'TRANSFER (game 2) — logic core',
+    added: [
+      'Board model + deterministic pulse simulator (later-claim-wins, INVERT/DEAD/REPEAT/SPLIT).',
+      'Enemy AI policies (naive → greedy → greedy+ → optimal-ish) and player strategies.',
+      'Solution-first generator with the asymmetry balancer + a solver: the intended side wins vs the AI, and naive early-fire loses at D3+.',
+      'Verified across 200 boards (scripts/verify-transfer.ts). No rendering yet.',
+    ],
+  },
+  {
+    build: null,
+    date: '2026-08-11',
+    title: 'CONSTELLATION: feel + content pass',
+    added: [
+      'Extraction magnetism (cursor grabs the nearest glyph point) + reticle snap + extract-pop.',
+      'Glyph bank grown to 15 (min Hamming 8).',
+      'Timer is a hollow thin ring that shrinks and shifts teal → amber → red.',
+    ],
+  },
+  {
+    build: null,
     date: '2026-08-11',
     title: 'Phase 2 — extraction, sweep, win/lose',
     added: [
