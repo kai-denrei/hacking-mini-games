@@ -19,6 +19,8 @@ export interface HalftoneOptions {
   /** Cloud radius, used to normalize depth about the focus point. */
   radius?: number;
   pixelRatio?: number;
+  /** How much a point's emphasis (0..1) brightens it. */
+  emphasisGain?: number;
 }
 
 const VERT = /* glsl */ `
@@ -29,7 +31,9 @@ const VERT = /* glsl */ `
   uniform float uRadius;
   uniform float uFocusDepth;
   uniform float uPixelRatio;
+  attribute float emphasis;   // 0..1 per-point highlight (game-driven)
   varying float vInk;
+  varying float vEmph;
 
   void main() {
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
@@ -39,20 +43,24 @@ const VERT = /* glsl */ `
       0.0, 1.0
     );                                          // 0 = nearest, 1 = farthest
     vInk = mix(uInkNear, uInkFar, depth01);
-    gl_PointSize = mix(uSizeNear, uSizeFar, depth01) * uPixelRatio;
+    vEmph = emphasis;
+    gl_PointSize = mix(uSizeNear, uSizeFar, depth01) * uPixelRatio * (1.0 + 0.6 * emphasis);
     gl_Position = projectionMatrix * mv;
   }
 `;
 
 const FRAG = /* glsl */ `
   precision mediump float;
+  uniform float uEmphasisGain;
   varying float vInk;
+  varying float vEmph;
 
   void main() {
     float d = length(gl_PointCoord - vec2(0.5));
     float alpha = 1.0 - smoothstep(0.44, 0.5, d);   // soft round dot (AA edge)
     if (alpha <= 0.0) discard;
-    gl_FragColor = vec4(vec3(vInk), alpha);
+    float ink = clamp(vInk + uEmphasisGain * vEmph, 0.0, 1.0);
+    gl_FragColor = vec4(vec3(ink), alpha);
   }
 `;
 
@@ -64,6 +72,10 @@ export class HalftoneCloud {
   constructor(positions: Float32Array, opts: HalftoneOptions = {}) {
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.geometry.setAttribute(
+      'emphasis',
+      new THREE.BufferAttribute(new Float32Array(positions.length / 3), 1),
+    );
 
     this.material = new THREE.ShaderMaterial({
       uniforms: {
@@ -74,6 +86,7 @@ export class HalftoneCloud {
         uRadius: { value: opts.radius ?? 1 },
         uFocusDepth: { value: 4 },
         uPixelRatio: { value: opts.pixelRatio ?? 1 },
+        uEmphasisGain: { value: opts.emphasisGain ?? 0.85 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -95,6 +108,13 @@ export class HalftoneCloud {
   updatePositions(positions: Float32Array): void {
     const attr = this.geometry.getAttribute('position') as THREE.BufferAttribute;
     (attr.array as Float32Array).set(positions);
+    attr.needsUpdate = true;
+  }
+
+  /** In-place per-point emphasis update (0..1 each). */
+  updateEmphasis(emphasis: Float32Array): void {
+    const attr = this.geometry.getAttribute('emphasis') as THREE.BufferAttribute;
+    (attr.array as Float32Array).set(emphasis);
     attr.needsUpdate = true;
   }
 
