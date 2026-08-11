@@ -32,15 +32,16 @@ export const RULES: GameRules[] = [
   },
   {
     name: 'TRANSFER',
-    status: 'planned',
+    status: 'playable',
     fantasy:
       'Your influence device fights a host machine’s processor for control of its 12 registers. Majority wins; you become what you defeat. (Paradroid / Quazatron.)',
     how: [
-      'Pick the better of two wiring layers (a pre-commit read of the board).',
-      'Fire a limited stock of pulses down input terminals; they thread through splitters/inverters/repeaters to claim central cells.',
-      'Later pulse wins a contested cell — so time your overwrites against the enemy AI’s spend.',
+      'Press 2 to play. PLAN: click the left or right wiring layer to take it (the two differ in quality — read before you commit).',
+      'RUN: click your terminals to fire a limited stock of pulses. Each travels its wire and claims (or inverts) central cells; REPEAT guns keep re-claiming.',
+      'Later pulse wins a contested cell — hold some back to overwrite the host late, after its claims land.',
     ],
-    fail: ['Lose the majority of 12 cells. Margin (how decisively) scales the reward.'],
+    fail: ['Fail to hold the majority of 12 cells when the timer runs out. (6-6 rematch is still TODO.)'],
+    note: 'Playable MVP: firing, pulses, claims, AI, win/lose. Still to come: 6-6 rematch, richer wire visuals, side-select timer.',
   },
   {
     name: 'TRACE',

@@ -23,20 +23,20 @@ export interface RoadmapPhase {
 }
 
 export const STATUS =
-  'CONSTELLATION (game 1) is playable end to end. Game 2 — TRANSFER, the Paradroid ' +
-  'circuit-takeover duel — has begun: its rules engine (pulse simulator, AI, ' +
-  'solution-first generator) is built and verified; rendering + play come next.';
+  'Two games now playable. CONSTELLATION (parallax point-cloud extraction) and ' +
+  'TRANSFER (Paradroid circuit-takeover duel). Press 1 / 2 to switch between them; ' +
+  'R reseeds the current game.';
 
 export const MILESTONES: Milestone[] = [
   {
     build: 'live',
     date: '2026-08-11',
-    title: 'TRANSFER (game 2) — logic core',
+    title: 'TRANSFER (game 2) — playable',
     added: [
-      'Board model + deterministic pulse simulator (later-claim-wins, INVERT/DEAD/REPEAT/SPLIT).',
-      'Enemy AI policies (naive → greedy → greedy+ → optimal-ish) and player strategies.',
-      'Solution-first generator with the asymmetry balancer + a solver: the intended side wins vs the AI, and naive early-fire loses at D3+.',
-      'Verified across 200 boards (scripts/verify-transfer.ts). No rendering yet.',
+      'The circuit renders as a flat dot-field: a central 12-cell strip flanked by two 8-terminal wiring layers, wires threading terminal → cell.',
+      'PLAN: click a side to take it. RUN: click your terminals to fire pulses that travel the wires (with tails) and claim cells — later pulse wins.',
+      'Owner colour (you teal / host coral), claim flash, REPEAT guns, the enemy AI firing back, shrinking timer ring, budget dots, win/lose.',
+      'Built on the logic core (deterministic sim + solution-first generator, verified across 200 boards). 6-6 rematch still TODO.',
     ],
   },
   {
