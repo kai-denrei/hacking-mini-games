@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { DotField } from '../../render/dotfield.ts';
 import { generateBoard } from './generate.ts';
 import { TransferGame } from './play.ts';
-import { layerOf, WIN, type Board } from './model.ts';
+import { layerOf, type Board } from './model.ts';
 import { cellPos, termPos, type Side } from './layout.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
 
@@ -252,7 +252,7 @@ export function mountTransfer(
     timerRing.setAttribute('r', String(3 + 18 * frac));
     timerRing.setAttribute('stroke', timerColor(frac));
     const c = game.counts();
-    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e}  (need ${WIN})`;
+    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e} · lead wins`;
     if (game.phase === 'PLAN') {
       prompt.textContent = 'CHOOSE A SIDE — click the left or right layer to take it';
       prompt.style.opacity = '1';

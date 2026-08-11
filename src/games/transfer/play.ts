@@ -1,6 +1,6 @@
 import { makeRng, type RNG } from '../../engine/rng.ts';
 import { aiSchedule, type Fire } from './simulate.ts';
-import { CELLS, WIN, layerOf, type Board, type Owner, type OutcomeKind } from './model.ts';
+import { CELLS, layerOf, type Board, type Owner, type OutcomeKind } from './model.ts';
 import type { Side } from './layout.ts';
 
 // Live, real-time TRANSFER match (THREE-free). PLAN (pick a side) → RUN (fire
@@ -152,7 +152,7 @@ export class TransferGame {
     let e = 0;
     for (const o of this.owners) o === 'P' ? p++ : o === 'E' ? e++ : 0;
     this.result = { p, e };
-    this.phase = p >= WIN ? 'WON' : 'LOST'; // 6-6 rematch is a TODO
+    this.phase = p > e ? 'WON' : 'LOST'; // majority over the host; a tie (rematch) is a TODO
   }
 
   counts(): { p: number; e: number; n: number } {

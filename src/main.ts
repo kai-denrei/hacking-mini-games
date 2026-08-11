@@ -27,6 +27,8 @@ function showError(err: unknown): void {
   document.body.appendChild(box);
 }
 
+// URL is /N — /1 constellation, /2 transfer, /3 circuit, /4 shapes, /5 tubes.
+const GAMES: GameName[] = ['constellation', 'transfer', 'circuit', 'shapes', 'tubes'];
 let current: Game | null = null;
 let currentName: GameName = 'constellation';
 let seq = 0;
@@ -43,7 +45,7 @@ function mountGame(name: GameName): void {
   current?.dispose();
   seq = 0;
   currentName = name;
-  location.hash = name === 'transfer' ? 'transfer' : '';
+  history.replaceState(null, '', `/${GAMES.indexOf(name) + 1}`);
   const canvas = freshCanvas();
   try {
     current =
@@ -63,15 +65,12 @@ function mountGame(name: GameName): void {
   }
 }
 
-const startHash = location.hash.replace('#', '') as GameName;
-mountGame(['transfer', 'circuit', 'shapes', 'tubes'].includes(startHash) ? startHash : 'constellation');
+const startNum = parseInt(location.pathname.replace(/\D/g, ''), 10);
+mountGame(GAMES[startNum - 1] ?? 'constellation');
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === '1') mountGame('constellation');
-  else if (e.key === '2') mountGame('transfer');
-  else if (e.key === '3') mountGame('circuit');
-  else if (e.key === '4') mountGame('shapes');
-  else if (e.key === '5') mountGame('tubes');
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= GAMES.length) mountGame(GAMES[n - 1]!);
   else if ((e.key === 'r' || e.key === 'R') && current) {
     seq += 1;
     current.regenerate(CFG.difficulty, `${currentName}-${seq}`);

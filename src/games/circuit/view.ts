@@ -6,7 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { DotField } from '../../render/dotfield.ts';
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
-import { layerOf, WIN, type Board } from '../transfer/model.ts';
+import { layerOf, type Board } from '../transfer/model.ts';
 import { cellPos, termPos, type Side } from '../transfer/layout.ts';
 import { traceDots, type TraceDot } from './route.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
@@ -289,7 +289,7 @@ export function mountCircuit(
     timerRing.setAttribute('r', String(3 + 18 * frac));
     timerRing.setAttribute('stroke', timerColor(frac));
     const c = game.counts();
-    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e}  (need ${WIN})`;
+    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e} · lead wins`;
     if (game.phase === 'PLAN') {
       prompt.textContent = 'CHOOSE A SIDE — click the left or right circuit to take it';
       prompt.style.opacity = '1';

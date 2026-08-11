@@ -7,7 +7,7 @@ import { DotField } from '../../render/dotfield.ts';
 import { searching, solving, type Shape, type PDot } from '../../render/primitives.ts';
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
-import { layerOf, WIN, type Board, type Owner } from '../transfer/model.ts';
+import { layerOf, type Board, type Owner } from '../transfer/model.ts';
 import { cellPos, termPos, type Side } from '../transfer/layout.ts';
 import { traceDots, type TraceDot } from '../circuit/route.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
@@ -284,7 +284,7 @@ export function mountShapes(canvas: HTMLCanvasElement, initial: { difficulty: Di
     timerRing.setAttribute('r', String(3 + 18 * frac));
     timerRing.setAttribute('stroke', timerColor(frac));
     const c = game.counts();
-    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e}  (need ${WIN})`;
+    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e} · lead wins`;
     if (game.phase === 'PLAN') {
       prompt.textContent = 'CHOOSE A SIDE — searching octahedra (left) vs searching cubes (right)';
       prompt.style.opacity = '1';

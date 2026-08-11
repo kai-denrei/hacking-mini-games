@@ -7,7 +7,7 @@ import { DotField } from '../../render/dotfield.ts';
 import { searching, type Shape, type PDot } from '../../render/primitives.ts';
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
-import { layerOf, WIN, type Board, type OutcomeKind } from '../transfer/model.ts';
+import { layerOf, type Board, type OutcomeKind } from '../transfer/model.ts';
 import { cellPos, termPos, type Side } from '../transfer/layout.ts';
 import { traceDots, type TraceDot } from '../circuit/route.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
@@ -174,32 +174,63 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
   });
 
   const TUBE_R = 0.012;
-  // a thin dotted tube: bright round core + dim walls. A very slow ambient band
-  // drifts along it at rest (so the circuit is always gently alive); a fired
-  // pulse's light overrides it.
-  function drawTube(dots: TraceDot[], dim: RGB, lightAt: (u: number) => { b: number; col: RGB }, endU: number, nowSec: number, phase: number): void {
+  // A thin dotted tube: bright round core + dim walls, with a "Working Torus"
+  // current — particles that travel along the tube AND spiral around its cross
+  // section (the Braille "working/orbits" motion), so it always reads as live
+  // current. A faint ambient band drifts under it; a fired pulse overrides both.
+  const dirAt = (dots: TraceDot[], i: number): [number, number, number, number] => {
+    const a = dots[Math.max(0, i - 1)]!;
+    const c = dots[Math.min(dots.length - 1, i + 1)]!;
+    let dx = c.x - a.x;
+    let dy = c.y - a.y;
+    const l = Math.hypot(dx, dy) || 1;
+    dx /= l;
+    dy /= l;
+    return [dx, dy, -dy, dx]; // dir + perp
+  };
+  const nearestI = (dots: TraceDot[], u: number): number => {
+    let bi = 0;
+    let bd = 9;
+    for (let i = 0; i < dots.length; i++) {
+      const dd = Math.abs(dots[i]!.u - u);
+      if (dd < bd) {
+        bd = dd;
+        bi = i;
+      }
+    }
+    return bi;
+  };
+  function drawTube(dots: TraceDot[], dim: RGB, flow: RGB, lightAt: (u: number) => { b: number; col: RGB }, endU: number, nowSec: number, phase: number): void {
     const wall: RGB = [dim[0]! * 0.7, dim[1]! * 0.7, dim[2]! * 0.7];
     for (let i = 0; i < dots.length; i++) {
       const d = dots[i]!;
       if (d.u > endU) break;
-      const a = dots[Math.max(0, i - 1)]!;
-      const c = dots[Math.min(dots.length - 1, i + 1)]!;
-      let dx = c.x - a.x;
-      let dy = c.y - a.y;
-      const l = Math.hypot(dx, dy) || 1;
-      dx /= l;
-      dy /= l;
-      const nx = -dy;
-      const ny = dx;
+      const [, , nx, ny] = dirAt(dots, i);
       const { b, col } = lightAt(d.u);
-      const amb = 0.28 * Math.max(0, Math.sin((d.u * 2.2 - nowSec * 0.09 + phase) * Math.PI * 2)); // slow drift
+      const amb = 0.16 * Math.max(0, Math.sin((d.u * 2.2 - nowSec * 0.09 + phase) * Math.PI * 2));
       const coreCol = mix(dim, col, Math.min(1, b));
-      const cb = 0.5 + amb + 0.85 * b;
-      field.dot(d.x, d.y, coreCol[0] * cb, coreCol[1] * cb, coreCol[2] * cb, 2.4 + b * 3.6, 0.95);
+      const cb = 0.45 + amb + 0.85 * b;
+      field.dot(d.x, d.y, coreCol[0] * cb, coreCol[1] * cb, coreCol[2] * cb, 2.3 + b * 3.6, 0.95);
       for (const off of [1, -1] as const) {
         const wc = mix(wall, col, Math.min(1, b * 0.8));
-        const wb = 0.32 + amb * 0.7 + 0.6 * b;
-        field.dot(d.x + nx * off * TUBE_R, d.y + ny * off * TUBE_R, wc[0] * wb, wc[1] * wb, wc[2] * wb, 1.7 + b * 2.2, 0.85);
+        const wb = 0.3 + amb * 0.7 + 0.6 * b;
+        field.dot(d.x + nx * off * TUBE_R, d.y + ny * off * TUBE_R, wc[0] * wb, wc[1] * wb, wc[2] * wb, 1.6 + b * 2.2, 0.85);
+      }
+    }
+    // working current: particles flowing along the tube, spiralling its section
+    const PN = 3;
+    for (let k = 0; k < PN; k++) {
+      const u = (nowSec * 0.14 + k / PN + phase * 0.13) % 1;
+      if (u <= 0.01 || u > endU - 0.01) continue;
+      const i = nearestI(dots, u);
+      const d = dots[i]!;
+      const [dx, dy, nx, ny] = dirAt(dots, i);
+      for (let s = 0; s < 3; s++) {
+        const spiral = Math.sin((u - s * 0.015) * 30 + nowSec * 2.4 + phase) * TUBE_R * 1.1;
+        const px = d.x - dx * s * 0.02 + nx * spiral;
+        const py = d.y - dy * s * 0.02 + ny * spiral;
+        const a = 0.9 - s * 0.3;
+        field.dot(px, py, flow[0]! * a, flow[1]! * a, flow[2]! * a, 3.4 - s, 0.95);
       }
     }
   }
@@ -271,12 +302,14 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     for (const r of routes) {
       const role = game.playerSide ? (r.side === game.playerSide ? 'P' : 'E') : 'N';
       const dim = role === 'P' ? C.dimP : role === 'E' ? C.dimE : C.dimN;
+      const flow: RGB = role === 'P' ? C.p : role === 'E' ? C.e : [0.34, 0.46, 0.6];
       const isPrev = previewing && r.side === hoverSide && r.term === hoverTerm;
       const active = lights.get(`${r.side}:${r.term}:${r.cell}`);
       const endU = r.kind === 'DEAD' ? 0.66 : 1;
       drawTube(
         r.dots,
         dim,
+        flow,
         (u) => {
           let b = isPrev ? 0.42 : 0;
           let col: RGB = isPrev ? kindColor(r.kind) : C.white;
@@ -356,7 +389,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     timerRing.setAttribute('r', String(3 + 18 * frac));
     timerRing.setAttribute('stroke', timerColor(frac));
     const c = game.counts();
-    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e}  (need ${WIN})`;
+    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e} · lead wins`;
     if (game.phase === 'PLAN') {
       prompt.textContent = 'READ BOTH CIRCUITS — hover a terminal to preview its reach, then click a side to take it';
       prompt.style.opacity = '1';
