@@ -4,18 +4,35 @@ import { mountCircuit } from './games/circuit/view.ts';
 import { mountShapes } from './games/shapes/view.ts';
 import { mountTubes } from './games/tubes/view.ts';
 import { mountDevLog } from './devlog/panel.ts';
+import { LADDER, type MatchSpec } from './games/transfer/model.ts';
+import type { TransferGame } from './games/transfer/play.ts';
 import type { Difficulty, Skill } from './engine/session.ts';
 
 // App entry + tiny router. Press 1 = CONSTELLATION, 2 = TRANSFER, 3 = CIRCUIT,
-// 4 = SHAPES, 5 = TUBES. R reseeds the current game. Dev log mounts once.
+// 4 = SHAPES, 5 = TUBES. R (or the ⟳ button) reseeds the current game. Dev log
+// mounts once.
 mountDevLog();
 
 const CFG = { difficulty: 2 as Difficulty, skill: 2 as Skill };
 type GameName = 'constellation' | 'transfer' | 'circuit' | 'shapes' | 'tubes';
-interface Game {
+const DUEL = new Set<GameName>(['transfer', 'circuit', 'shapes', 'tubes']);
+
+// The four duel games share the scaling ladder (a class matchup per rung): win a
+// match then reseed to climb; lose (strict, not a tie) then reseed to fall back
+// to the shallow end. Rung persists across duel games so switching renderers
+// keeps your depth.
+let rung = 0;
+
+interface DuelGame {
+  dispose(): void;
+  regenerate(spec: MatchSpec, seed: string): void;
+  game(): TransferGame;
+}
+interface SimpleGame {
   dispose(): void;
   regenerate(d: Difficulty, seed: string): void;
 }
+type Game = DuelGame | SimpleGame;
 
 function showError(err: unknown): void {
   const box = document.createElement('div');
@@ -49,16 +66,17 @@ function mountGame(name: GameName): void {
   currentName = name;
   history.replaceState(null, '', `${BASE}${GAMES.indexOf(name) + 1}`);
   const canvas = freshCanvas();
+  const duel = (seed: string) => ({ spec: LADDER[rung]!, seed, skill: CFG.skill });
   try {
     current =
       name === 'transfer'
-        ? mountTransfer(canvas, { ...CFG, seed: 'circuit' })
+        ? mountTransfer(canvas, duel('circuit'))
         : name === 'circuit'
-          ? mountCircuit(canvas, { ...CFG, seed: 'grid' })
+          ? mountCircuit(canvas, duel('grid'))
           : name === 'shapes'
-            ? mountShapes(canvas, { ...CFG, seed: 'solids' })
+            ? mountShapes(canvas, duel('solids'))
             : name === 'tubes'
-              ? mountTubes(canvas, { ...CFG, seed: 'wired' })
+              ? mountTubes(canvas, duel('wired'))
               : mountConstellation(canvas, { ...CFG, seed: 'aurora' });
     (window as unknown as { __cx: Game }).__cx = current;
   } catch (err) {
@@ -70,7 +88,22 @@ function mountGame(name: GameName): void {
 function reseed(): void {
   if (!current) return;
   seq += 1;
-  current.regenerate(CFG.difficulty, `${currentName}-${seq}`);
+  try {
+    if (DUEL.has(currentName)) {
+      const g = (current as DuelGame).game();
+      // Advance the ladder only when a match has actually resolved: a win climbs
+      // a rung, a strict loss reverts to the shallow end. A tie (or reseeding
+      // mid-match) replays the same rung.
+      if (g.phase === 'WON') rung = Math.min(LADDER.length - 1, rung + 1);
+      else if (g.phase === 'LOST' && g.result && g.result.p < g.result.e) rung = 0;
+      (current as DuelGame).regenerate(LADDER[rung]!, `${currentName}-${seq}`);
+    } else {
+      (current as SimpleGame).regenerate(CFG.difficulty, `${currentName}-${seq}`);
+    }
+  } catch (err) {
+    console.error(err);
+    showError(err);
+  }
 }
 
 // On-screen reset (touch/mobile has no keyboard, so no R). A small ⟳ button in

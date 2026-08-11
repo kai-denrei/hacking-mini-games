@@ -1,4 +1,3 @@
-import type { Difficulty } from '../../engine/session.ts';
 import { makeRng, randRange, type RNG } from '../../engine/rng.ts';
 import {
   type Board,
@@ -7,7 +6,8 @@ import {
   type Outcome,
   type OutcomeKind,
   type TierParams,
-  TIERS,
+  type MatchSpec,
+  classParams,
   WIN,
   layerQuality,
   reachSet,
@@ -104,9 +104,12 @@ function balance(strong: Layer, weak: Layer): void {
   }
 }
 
-export function generateBoard(difficulty: Difficulty, seed: string): Board {
-  const params = TIERS[difficulty];
-  const rng = makeRng(`${seed}:transfer:${difficulty}`);
+function tryGenerate(spec: MatchSpec, seed: string): Board | null {
+  const params = classParams(spec);
+  const rng = makeRng(`${seed}:transfer:${spec.attacker}:${spec.defender}`);
+  // Above naive AI the board must also defeat a "fire everything early" run, so
+  // reading the routes (not just spamming) is the skill.
+  const requireReadSkill = spec.defender >= 3;
 
   for (let attempt = 1; attempt <= GEN.maxBoardAttempts; attempt++) {
     const a = makeLayer(rng, params);
@@ -123,20 +126,20 @@ export function generateBoard(difficulty: Difficulty, seed: string): Board {
     if (ratio < GEN.ratioLo || ratio > GEN.ratioHi) continue;
 
     // solver: better side (strong) as player, worse (weak) drives the AI
-    const aiRng = makeRng(`${seed}:ai:${difficulty}:${attempt}`);
+    const aiRng = makeRng(`${seed}:ai:${spec.defender}:${attempt}`);
     const eSched = aiSchedule(params.ai, weak, params.ePulses, params.tMatch, aiRng);
     const perfect = simulate(strong, weak, playerFireLate(strong, params.pPulses, params.tMatch), eSched, params.pPulses, params.ePulses, params.tMatch);
     if (perfect.p < WIN) continue;
-    if (difficulty >= 3) {
+    if (requireReadSkill) {
       const naive = simulate(strong, weak, playerFireEarly(strong, params.pPulses, params.tMatch), eSched, params.pPulses, params.ePulses, params.tMatch);
-      if (naive.p >= WIN) continue; // naive early-fire must NOT win at D3+
+      if (naive.p >= WIN) continue; // naive early-fire must NOT win when the AI is smart
     }
 
     const left = a;
     const right = b;
     return {
       seed,
-      difficulty,
+      spec,
       params,
       left,
       right,
@@ -144,5 +147,16 @@ export function generateBoard(difficulty: Difficulty, seed: string): Board {
       genStats: { boardAttempts: attempt, qLeft: layerQuality(left), qRight: layerQuality(right) },
     };
   }
-  throw new Error(`transfer generateBoard: no valid board after ${GEN.maxBoardAttempts} attempts (seed=${seed}, D${difficulty})`);
+  return null;
+}
+
+// Generate a board for the matchup, easing the defender's class down if the
+// requested one has no solvable board (generosity is an invariant — never crash
+// the player into an impossible rung; see study §"Concrete amendments").
+export function generateBoard(spec: MatchSpec, seed: string): Board {
+  for (let d = spec.defender; d >= 1; d--) {
+    const board = tryGenerate({ attacker: spec.attacker, defender: d }, seed);
+    if (board) return board;
+  }
+  throw new Error(`transfer generateBoard: no valid board even at defender 1 (seed=${seed}, attacker=${spec.attacker})`);
 }

@@ -39,9 +39,19 @@ export interface TierParams {
   ai: AiPolicy;
 }
 
+/** A matchup: your current host's class vs the target/defender's class (0..9).
+ *  Difficulty is the gap between them, not a level number (see the design study:
+ *  paradroid-difficulty-study.md). Both budgets and the board's hazards/AI derive
+ *  from these two classes. */
+export type Klass = number; // 0..9
+export interface MatchSpec {
+  attacker: Klass;
+  defender: Klass;
+}
+
 export interface Board {
   seed: string;
-  difficulty: Difficulty;
+  spec: MatchSpec;
   params: TierParams;
   left: Layer;
   right: Layer;
@@ -52,6 +62,52 @@ export interface Board {
 
 export const CELLS = 12;
 export const WIN = 7;
+
+// Class model (study §"Concrete amendments"). Pulses = base + class; the board's
+// hazard density and defender AI key off the defender's class; the timer is
+// fixed (difficulty comes from the budget gap + hazards + AI, not the clock).
+export const PULSE_BASE = 4;
+export const T_MATCH = 16;
+
+export function aiForClass(defender: Klass): AiPolicy {
+  return defender <= 2 ? 'naive' : defender <= 5 ? 'greedy' : defender <= 7 ? 'greedy+' : 'optimal-ish';
+}
+
+export function classParams(spec: MatchSpec): TierParams {
+  const ai = aiForClass(spec.defender);
+  const attackerBonus = ai === 'optimal-ish' ? 1 : 0; // P90 rule: +1 pulse vs a perfect defender
+  return {
+    tMatch: T_MATCH,
+    pPulses: PULSE_BASE + spec.attacker + attackerBonus,
+    ePulses: PULSE_BASE + spec.defender,
+    traps: Math.min(6, 1 + Math.round(spec.defender * 0.6)),
+    repeats: spec.defender >= 6 ? 2 : spec.defender >= 3 ? 1 : 0,
+    ai,
+  };
+}
+
+// The scaling ladder the meta-layer walks: rung 0 is the shallow end. Each win
+// climbs a rung (bigger class gap, smarter AI, more hazards); a loss reverts to
+// the shallow end — proportional punishment that always reopens a winnable board.
+export const LADDER: readonly MatchSpec[] = [
+  { attacker: 5, defender: 2 },
+  { attacker: 5, defender: 3 },
+  { attacker: 4, defender: 4 },
+  { attacker: 4, defender: 6 },
+  { attacker: 3, defender: 7 },
+  { attacker: 2, defender: 8 },
+  { attacker: 2, defender: 9 },
+];
+
+/** Back-compat D1–D5 wrapper → a matchup (used by callers still on tiers). */
+export const specForDifficulty = (d: Difficulty): MatchSpec =>
+  ([
+    { attacker: 6, defender: 2 },
+    { attacker: 5, defender: 3 },
+    { attacker: 4, defender: 5 },
+    { attacker: 3, defender: 7 },
+    { attacker: 2, defender: 9 },
+  ][d - 1] ?? { attacker: 5, defender: 3 });
 
 export const TIERS: Record<Difficulty, TierParams> = {
   1: { tMatch: 20, pPulses: 10, ePulses: 6, traps: 2, repeats: 0, ai: 'naive' },

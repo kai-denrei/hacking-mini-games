@@ -7,10 +7,10 @@ import { DotField } from '../../render/dotfield.ts';
 import { searching, solving, type Shape, type PDot } from '../../render/primitives.ts';
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
-import { layerOf, type Board, type OutcomeKind, type Owner } from '../transfer/model.ts';
+import { layerOf, type Board, type OutcomeKind, type Owner, type MatchSpec } from '../transfer/model.ts';
 import { cellPos, termPos, setVerticalGain, gainFor, vGain, type Side } from '../transfer/layout.ts';
 import { traceDots, type TraceDot } from '../circuit/route.ts';
-import type { Difficulty, Skill } from '../../engine/session.ts';
+import type { Skill } from '../../engine/session.ts';
 
 // TUBES (game 5) — the read-the-circuit model. Wires are thin dotted tubes (a
 // cut-and-straightened torus: a lit round core with dim walls). Every terminal's
@@ -40,6 +40,13 @@ const scale = (a: RGB, k: number): [number, number, number] => [a[0]! * k, a[1]!
 // Subtle per-terminal tone alternation so adjacent overlapping tubes read as
 // distinct lanes (even lanes full, odd lanes dimmed a touch).
 const laneTone = (term: number): number => (term % 2 === 0 ? 1 : 0.76);
+// Initial (pre-choice) circuits: three shades of pale white/green cycled per
+// terminal so the tangle of neutral routes reads as distinct routes.
+const NEUTRAL_SHADES: readonly RGB[] = [
+  [0.5, 0.92, 0.68], // green
+  [0.9, 0.93, 0.85], // warm white
+  [0.6, 0.8, 1.0], // cool white
+];
 const timerColor = (f: number): string => {
   const T = [93, 202, 165];
   const A = [224, 176, 112];
@@ -50,7 +57,7 @@ const timerColor = (f: number): string => {
 const kindColor = (k: OutcomeKind): RGB => (k === 'INVERT' ? C.invert : k === 'REPEAT' ? C.repeat : k === 'DEAD' ? C.dead : C.white);
 
 export interface Mounted {
-  regenerate(difficulty: Difficulty, seed: string): void;
+  regenerate(spec: MatchSpec, seed: string): void;
   chooseSide(side: Side): void;
   fire(terminalId: number): void;
   game(): TransferGame;
@@ -65,7 +72,7 @@ interface Route {
   dots: TraceDot[];
 }
 
-export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Difficulty; seed: string; skill: Skill }): Mounted {
+export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec; seed: string; skill: Skill }): Mounted {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x05060a, 1);
@@ -132,13 +139,13 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
       });
     }
   }
-  function build(difficulty: Difficulty, seed: string): void {
-    board = generateBoard(difficulty, seed);
+  function build(spec: MatchSpec, seed: string): void {
+    board = generateBoard(spec, seed);
     game = new TransferGame(board);
     buildRoutes();
     overlay.style.display = 'none';
   }
-  build(initial.difficulty, initial.seed);
+  build(initial.spec, initial.seed);
 
   function resize(): void {
     const w = window.innerWidth;
@@ -313,9 +320,18 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     // tubes + elements
     for (const r of routes) {
       const role = game.playerSide ? (r.side === game.playerSide ? 'P' : 'E') : 'N';
-      const tone = laneTone(r.term);
-      const dim = scale(role === 'P' ? C.dimP : role === 'E' ? C.dimE : C.dimN, tone);
-      const flow: RGB = scale(role === 'P' ? C.p : role === 'E' ? C.e : [0.34, 0.46, 0.6], 0.85 + 0.15 * tone);
+      let dim: RGB;
+      let flow: RGB;
+      if (role === 'N') {
+        // uncommitted circuit: shade each terminal's routes so lanes read apart
+        const sh = NEUTRAL_SHADES[r.term % NEUTRAL_SHADES.length]!;
+        dim = scale(sh, 0.24);
+        flow = sh;
+      } else {
+        const tone = laneTone(r.term);
+        dim = scale(role === 'P' ? C.dimP : C.dimE, tone);
+        flow = scale(role === 'P' ? C.p : C.e, 0.85 + 0.15 * tone);
+      }
       const isPrev = previewing && r.side === hoverSide && r.term === hoverTerm;
       const active = lights.get(`${r.side}:${r.term}:${r.cell}`);
       const endU = r.kind === 'DEAD' ? 0.66 : 1;
@@ -416,7 +432,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     timerRing.setAttribute('r', String(3 + 18 * frac));
     timerRing.setAttribute('stroke', timerColor(frac));
     const c = game.counts();
-    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e} · lead wins`;
+    tally.textContent = `you c${board.spec.attacker} vs host c${board.spec.defender} · ${c.p}–${c.e} · lead wins`;
     if (game.phase === 'PLAN') {
       prompt.textContent = 'READ BOTH CIRCUITS — hover a terminal to preview its reach, then click a side to take it';
       prompt.style.opacity = '1';
@@ -431,7 +447,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
   loop();
 
   return {
-    regenerate: (d, seed) => build(d, seed),
+    regenerate: (spec, seed) => build(spec, seed),
     chooseSide: (side) => game.chooseSide(side),
     fire: (id) => game.firePlayer(id),
     game: () => game,

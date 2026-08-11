@@ -51,7 +51,7 @@ export class TransferGame {
     this.pBudget = board.params.pPulses;
     this.eBudget = board.params.ePulses;
     this.timeLeft = board.params.tMatch;
-    this.aiRng = makeRng(`${board.seed}:liveai:${board.difficulty}`);
+    this.aiRng = makeRng(`${board.seed}:liveai:${board.spec.defender}`);
   }
 
   enemySide(): Side | null {

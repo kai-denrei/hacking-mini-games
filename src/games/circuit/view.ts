@@ -6,10 +6,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { DotField } from '../../render/dotfield.ts';
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
-import { layerOf, type Board } from '../transfer/model.ts';
+import { layerOf, type Board, type MatchSpec } from '../transfer/model.ts';
 import { cellPos, termPos, setVerticalGain, gainFor, vGain, type Side } from '../transfer/layout.ts';
 import { traceDots, type TraceDot } from './route.ts';
-import type { Difficulty, Skill } from '../../engine/session.ts';
+import type { Skill } from '../../engine/session.ts';
 
 // CIRCUIT (game 3) — the Paradroid duel rendered as a live lit circuit board:
 // right-angle traces, light flowing through them as pulses travel, bloom glow.
@@ -46,7 +46,7 @@ const timerColor = (f: number): string => {
 };
 
 export interface Mounted {
-  regenerate(difficulty: Difficulty, seed: string): void;
+  regenerate(spec: MatchSpec, seed: string): void;
   chooseSide(side: Side): void;
   fire(terminalId: number): void;
   game(): TransferGame;
@@ -62,7 +62,7 @@ interface TraceView {
 
 export function mountCircuit(
   canvas: HTMLCanvasElement,
-  initial: { difficulty: Difficulty; seed: string; skill: Skill },
+  initial: { spec: MatchSpec; seed: string; skill: Skill },
 ): Mounted {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -129,13 +129,13 @@ export function mountCircuit(
       });
     }
   }
-  function build(difficulty: Difficulty, seed: string): void {
-    board = generateBoard(difficulty, seed);
+  function build(spec: MatchSpec, seed: string): void {
+    board = generateBoard(spec, seed);
     game = new TransferGame(board);
     buildTraces();
     overlay.style.display = 'none';
   }
-  build(initial.difficulty, initial.seed);
+  build(initial.spec, initial.seed);
 
   function resize(): void {
     const w = window.innerWidth;
@@ -300,7 +300,7 @@ export function mountCircuit(
     timerRing.setAttribute('r', String(3 + 18 * frac));
     timerRing.setAttribute('stroke', timerColor(frac));
     const c = game.counts();
-    tally.textContent = `D${board.difficulty} · ${board.seed} · you ${c.p} — host ${c.e} · lead wins`;
+    tally.textContent = `you c${board.spec.attacker} vs host c${board.spec.defender} · ${c.p}–${c.e} · lead wins`;
     if (game.phase === 'PLAN') {
       prompt.textContent = 'CHOOSE A SIDE — click the left or right circuit to take it';
       prompt.style.opacity = '1';
@@ -315,7 +315,7 @@ export function mountCircuit(
   loop();
 
   return {
-    regenerate: (d, seed) => build(d, seed),
+    regenerate: (spec, seed) => build(spec, seed),
     chooseSide: (side) => game.chooseSide(side),
     fire: (id) => game.firePlayer(id),
     game: () => game,
