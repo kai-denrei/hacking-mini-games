@@ -37,15 +37,17 @@ const C = {
 type RGB = readonly number[] | number[];
 const mix = (a: RGB, b: RGB, t: number): [number, number, number] => [a[0]! + (b[0]! - a[0]!) * t, a[1]! + (b[1]! - a[1]!) * t, a[2]! + (b[2]! - a[2]!) * t];
 const scale = (a: RGB, k: number): [number, number, number] => [a[0]! * k, a[1]! * k, a[2]! * k];
-// Subtle per-terminal tone alternation so adjacent overlapping tubes read as
-// distinct lanes (even lanes full, odd lanes dimmed a touch).
-const laneTone = (term: number): number => (term % 2 === 0 ? 1 : 0.76);
-// Initial (pre-choice) circuits: three shades of pale white/green cycled per
-// terminal so the tangle of neutral routes reads as distinct routes.
-const NEUTRAL_SHADES: readonly RGB[] = [
-  [0.5, 0.92, 0.68], // green
-  [0.9, 0.93, 0.85], // warm white
-  [0.6, 0.8, 1.0], // cool white
+// Three shades PER SIDE so overlapping routes read apart without mixing colours:
+// the green side (you) cycles greens; the white side (host) cycles whites.
+const GREEN_SHADES: readonly RGB[] = [
+  [0.34, 0.9, 0.62], // base green
+  [0.52, 1.0, 0.8], // bright green
+  [0.24, 0.7, 0.48], // deep green
+];
+const WHITE_SHADES: readonly RGB[] = [
+  [0.82, 0.88, 1.0], // cool white
+  [0.98, 0.98, 1.0], // bright white
+  [0.64, 0.72, 0.9], // deep white
 ];
 const timerColor = (f: number): string => {
   const T = [93, 202, 165];
@@ -320,18 +322,13 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     // tubes + elements
     for (const r of routes) {
       const role = game.playerSide ? (r.side === game.playerSide ? 'P' : 'E') : 'N';
-      let dim: RGB;
-      let flow: RGB;
-      if (role === 'N') {
-        // uncommitted circuit: shade each terminal's routes so lanes read apart
-        const sh = NEUTRAL_SHADES[r.term % NEUTRAL_SHADES.length]!;
-        dim = scale(sh, 0.24);
-        flow = sh;
-      } else {
-        const tone = laneTone(r.term);
-        dim = scale(role === 'P' ? C.dimP : C.dimE, tone);
-        flow = scale(role === 'P' ? C.p : C.e, 0.85 + 0.15 * tone);
-      }
+      // Green side = your side (or the left circuit before a side is taken);
+      // white side = the host (or the right circuit). Each cycles its own family.
+      const isGreen = role === 'P' || (role === 'N' && r.side === 'left');
+      const fam = isGreen ? GREEN_SHADES : WHITE_SHADES;
+      const sh = fam[r.term % fam.length]!;
+      const dim: RGB = scale(sh, role === 'N' ? 0.24 : 0.2);
+      const flow: RGB = sh;
       const isPrev = previewing && r.side === hoverSide && r.term === hoverTerm;
       const active = lights.get(`${r.side}:${r.term}:${r.cell}`);
       const endU = r.kind === 'DEAD' ? 0.66 : 1;
