@@ -1,0 +1,26 @@
+# Cache-Control for static hosts that read a _headers file (Netlify,
+# Cloudflare Pages). The real cache-control surface — fingerprinted URLs and
+# meta tags do nothing without this. For nginx/Apache/Vercel/S3 recipes see the
+# cache-busting skill's references/server-headers.md.
+#
+# Two-bucket model:
+#   HTML          -> no-cache  (source of truth for which hashed assets to load)
+#   hashed assets -> immutable (Vite content-hashes filenames; safe forever)
+
+/*.html
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/cb-shapes/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.css
+  Cache-Control: public, max-age=31536000, immutable
