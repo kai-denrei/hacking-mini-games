@@ -21,6 +21,8 @@ export interface HalftoneOptions {
   pixelRatio?: number;
   /** How much a point's emphasis (0..1) brightens it. */
   emphasisGain?: number;
+  /** Color of the momentary "found" flash. */
+  flashColor?: number;
 }
 
 const VERT = /* glsl */ `
@@ -31,7 +33,8 @@ const VERT = /* glsl */ `
   uniform float uRadius;
   uniform float uFocusDepth;
   uniform float uPixelRatio;
-  attribute float emphasis;   // 0..1 per-point highlight (game-driven)
+  uniform highp float uFlash; // 0..1 momentary "found" bloom (precision pinned: shared with frag)
+  attribute float emphasis;   // per-point highlight; <0 dims, >0 brightens
   varying float vInk;
   varying float vEmph;
 
@@ -44,7 +47,8 @@ const VERT = /* glsl */ `
     );                                          // 0 = nearest, 1 = farthest
     vInk = mix(uInkNear, uInkFar, depth01);
     vEmph = emphasis;
-    gl_PointSize = mix(uSizeNear, uSizeFar, depth01) * uPixelRatio * (1.0 + 0.6 * emphasis);
+    float bloom = 1.0 + 0.6 * max(emphasis, 0.0) + uFlash * max(emphasis, 0.0) * 1.1;
+    gl_PointSize = mix(uSizeNear, uSizeFar, depth01) * uPixelRatio * bloom;
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -52,6 +56,8 @@ const VERT = /* glsl */ `
 const FRAG = /* glsl */ `
   precision mediump float;
   uniform float uEmphasisGain;
+  uniform highp float uFlash;  // precision pinned to match the vertex shader
+  uniform vec3 uFlashColor;
   varying float vInk;
   varying float vEmph;
 
@@ -60,7 +66,8 @@ const FRAG = /* glsl */ `
     float alpha = 1.0 - smoothstep(0.44, 0.5, d);   // soft round dot (AA edge)
     if (alpha <= 0.0) discard;
     float ink = clamp(vInk + uEmphasisGain * vEmph, 0.0, 1.0);
-    gl_FragColor = vec4(vec3(ink), alpha);
+    vec3 col = mix(vec3(ink), uFlashColor, clamp(vEmph, 0.0, 1.0) * uFlash);
+    gl_FragColor = vec4(col, alpha);
   }
 `;
 
@@ -87,6 +94,8 @@ export class HalftoneCloud {
         uFocusDepth: { value: 4 },
         uPixelRatio: { value: opts.pixelRatio ?? 1 },
         uEmphasisGain: { value: opts.emphasisGain ?? 0.85 },
+        uFlash: { value: 0 },
+        uFlashColor: { value: new THREE.Color(opts.flashColor ?? 0xffcf6a) },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -111,11 +120,16 @@ export class HalftoneCloud {
     attr.needsUpdate = true;
   }
 
-  /** In-place per-point emphasis update (0..1 each). */
+  /** In-place per-point emphasis update (dims if <0, brightens if >0). */
   updateEmphasis(emphasis: Float32Array): void {
     const attr = this.geometry.getAttribute('emphasis') as THREE.BufferAttribute;
     (attr.array as Float32Array).set(emphasis);
     attr.needsUpdate = true;
+  }
+
+  /** Momentary "found" bloom intensity (0..1) on emphasized points. */
+  setFlash(v: number): void {
+    this.material.uniforms.uFlash!.value = v;
   }
 
   /** Keep depth normalization centered on the orbit target each frame. */

@@ -54,7 +54,8 @@ export function mountConstellation(
   const scene = new THREE.Scene();
   const target = new THREE.Vector3(0, 0, 0);
 
-  const FRUSTUM_HALF = 1.35;
+  const FRUSTUM_HALF = 1.12;
+  const FLASH_DUR = 0.7; // seconds of "found" shine
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
   camera.position.set(0, 0, 4);
   camera.lookAt(target);
@@ -113,10 +114,13 @@ export function mountConstellation(
   let base!: Float32Array;
   let live!: Float32Array;
   let emph!: Float32Array;
+  let isSignal!: Uint8Array; // 1 where a point is SIGNAL (any lock)
   let cloud: HalftoneCloud | null = null;
   let lockViews: LockView[] = [];
   let thetaLock = 5;
   let engaged = false; // soft-snap state (declared before build(), which resets it)
+  let prevEngaged = false;
+  let flashStart = -1e9;
 
   function build(difficulty: Difficulty, seed: string): void {
     board = generateBoard(difficulty, seed);
@@ -130,6 +134,7 @@ export function mountConstellation(
     });
     live = base.slice();
     emph = new Float32Array(n);
+    isSignal = new Uint8Array(n);
 
     lockViews = board.locks.map((lock) => {
       const signalIdx: number[] = [];
@@ -139,6 +144,7 @@ export function mountConstellation(
         if (pt.pop === 'SIGNAL' && pt.lock === lock.index) {
           signalIdx.push(i);
           signalPts.push(pt);
+          isSignal[i] = 1;
           const d = dot(pt.pos, lock.axis);
           flat.set(i, sub(pt.pos, scale(lock.axis, d)));
         }
@@ -215,11 +221,13 @@ export function mountConstellation(
       if (ang < nearestAngle) nearestAngle = ang;
     });
 
-    // contraction + emphasis
+    // contraction + emphasis; track the strongest lock this frame
     live.set(base);
     emph.fill(0);
+    let globalLock = 0;
     for (const lv of lockViews) {
       const ease = smoothstep(0.12, 0.9, lv.coherence);
+      if (ease > globalLock) globalLock = ease;
       if (ease <= 0.001) continue;
       for (const i of lv.signalIdx) {
         const f = lv.flat.get(i)!;
@@ -231,6 +239,11 @@ export function mountConstellation(
         live[i * 3 + 2] = bz + (f[2] - bz) * ease;
         emph[i] = ease;
       }
+    }
+    // dim the noise as a lock forms, so the glyph reads cleanly
+    if (globalLock > 0.001) {
+      const suppress = 0.85 * globalLock;
+      for (let i = 0; i < emph.length; i++) if (!isSignal[i]) emph[i] = -suppress;
     }
     cloud!.updatePositions(live);
     cloud!.updateEmphasis(emph);
@@ -247,6 +260,13 @@ export function mountConstellation(
       tmpDir.applyQuaternion(qStep);
       camera.position.copy(target).addScaledVector(tmpDir, dist);
     }
+
+    // "found" shine — fires once when a lock engages, fades over FLASH_DUR
+    const nowSec = performance.now() / 1000;
+    if (engaged && !prevEngaged) flashStart = nowSec;
+    prevEngaged = engaged;
+    const flashVal = Math.max(0, 1 - (nowSec - flashStart) / FLASH_DUR);
+    cloud!.setFlash(flashVal);
 
     // meter
     if (initial.skill >= 1) {

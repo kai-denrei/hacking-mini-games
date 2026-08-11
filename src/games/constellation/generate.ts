@@ -56,10 +56,10 @@ export const TIERS: Record<Difficulty, TierParams> = {
 
 // ── Generation tuning (exposed so the feel/uniqueness bar can be dialed) ─────
 export const GEN = {
-  glyphScale: 0.12, //     world units per glyph cell
+  glyphScale: 0.15, //     world units per glyph cell (bigger = more legible glyph)
   depthMin: 0.3,
   depthMax: 1.0,
-  depthScale: 0.7, //      multiplies the [depthMin,depthMax] displacement along A
+  depthScale: 0.875, //    scales with glyphScale to keep off-axis scatter (uniqueness)
   noiseRadius: 0.9, //     noise fills a ball of this radius
   // The renderer's initial sighting vector is +Z (normalize(camPos - target)),
   // so A must not sit near +Z or the board would be solved without moving (§6.1).
