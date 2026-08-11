@@ -23,13 +23,23 @@ export interface RoadmapPhase {
 }
 
 export const STATUS =
-  'Two games now playable. CONSTELLATION (parallax point-cloud extraction) and ' +
-  'TRANSFER (Paradroid circuit-takeover duel). Press 1 / 2 to switch between them; ' +
-  'R reseeds the current game.';
+  'Three games playable. CONSTELLATION (parallax point-cloud extraction), TRANSFER ' +
+  '(the circuit duel, abstract), and CIRCUIT (the same duel as a live lit circuit ' +
+  'board — angular traces, light flowing through them). Press 1 / 2 / 3 to switch; R reseeds.';
 
 export const MILESTONES: Milestone[] = [
   {
     build: 'live',
+    date: '2026-08-11',
+    title: 'CIRCUIT (game 3) — lit circuit board',
+    added: [
+      'A separate tab (press 3): the Paradroid duel rendered as a real circuit — right-angle traces routed through per-terminal vertical buses into the cell strip.',
+      'Light flows through the traces as pulses travel: a bright head with a trailing glow that lights each trace segment it passes, plus a bloom pass for the “deeper light”.',
+      'Reuses TRANSFER’s verified mechanics; the renderer (angular routing + additive dots + UnrealBloom) is the whole difference.',
+    ],
+  },
+  {
+    build: null,
     date: '2026-08-11',
     title: 'TRANSFER (game 2) — playable',
     added: [

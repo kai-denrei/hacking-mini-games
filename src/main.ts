@@ -1,14 +1,15 @@
 import { mountConstellation } from './games/constellation/view.ts';
 import { mountTransfer } from './games/transfer/view.ts';
+import { mountCircuit } from './games/circuit/view.ts';
 import { mountDevLog } from './devlog/panel.ts';
 import type { Difficulty, Skill } from './engine/session.ts';
 
-// App entry + tiny router. Press 1 = CONSTELLATION, 2 = TRANSFER; R reseeds the
-// current game. The dev log mounts once, independently of the game.
+// App entry + tiny router. Press 1 = CONSTELLATION, 2 = TRANSFER, 3 = CIRCUIT;
+// R reseeds the current game. The dev log mounts once, independently of the game.
 mountDevLog();
 
 const CFG = { difficulty: 2 as Difficulty, skill: 2 as Skill };
-type GameName = 'constellation' | 'transfer';
+type GameName = 'constellation' | 'transfer' | 'circuit';
 interface Game {
   dispose(): void;
   regenerate(d: Difficulty, seed: string): void;
@@ -46,7 +47,9 @@ function mountGame(name: GameName): void {
     current =
       name === 'transfer'
         ? mountTransfer(canvas, { ...CFG, seed: 'circuit' })
-        : mountConstellation(canvas, { ...CFG, seed: 'aurora' });
+        : name === 'circuit'
+          ? mountCircuit(canvas, { ...CFG, seed: 'grid' })
+          : mountConstellation(canvas, { ...CFG, seed: 'aurora' });
     (window as unknown as { __cx: Game }).__cx = current;
   } catch (err) {
     console.error(err);
@@ -54,11 +57,13 @@ function mountGame(name: GameName): void {
   }
 }
 
-mountGame(location.hash.replace('#', '') === 'transfer' ? 'transfer' : 'constellation');
+const startHash = location.hash.replace('#', '');
+mountGame(startHash === 'transfer' ? 'transfer' : startHash === 'circuit' ? 'circuit' : 'constellation');
 
 window.addEventListener('keydown', (e) => {
   if (e.key === '1') mountGame('constellation');
   else if (e.key === '2') mountGame('transfer');
+  else if (e.key === '3') mountGame('circuit');
   else if ((e.key === 'r' || e.key === 'R') && current) {
     seq += 1;
     current.regenerate(CFG.difficulty, `${currentName}-${seq}`);

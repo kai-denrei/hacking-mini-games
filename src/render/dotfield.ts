@@ -43,7 +43,7 @@ export class DotField {
   private cap: number;
   private n = 0;
 
-  constructor(capacity: number) {
+  constructor(capacity: number, opts: { additive?: boolean } = {}) {
     this.cap = capacity;
     this.pos = new Float32Array(capacity * 3);
     this.col = new Float32Array(capacity * 3);
@@ -60,6 +60,8 @@ export class DotField {
       fragmentShader: FRAG,
       transparent: true,
       depthTest: false,
+      depthWrite: false,
+      blending: opts.additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
     this.points = new THREE.Points(this.geo, this.material);
     this.points.frustumCulled = false;

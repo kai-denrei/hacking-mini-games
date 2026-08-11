@@ -56,6 +56,18 @@ export const RULES: GameRules[] = [
     fail: ['Critical: the tracer reaches your entry node. Soft: jack out early, keep nothing.'],
   },
   {
+    name: 'CIRCUIT',
+    status: 'playable',
+    fantasy:
+      'The same takeover fight as TRANSFER, but you are inside the board: a live circuit of glowing traces. Light you fire flows through the wiring and claims the cells it reaches.',
+    how: [
+      'Press 3 to play. Same rules as TRANSFER — choose a side, then fire your terminals.',
+      'Each pulse is light travelling the right-angle traces; watch it thread the circuit and light the cell it lands on. Later light wins a contested cell.',
+    ],
+    fail: ['Fail to hold the majority when the timer runs out.'],
+    note: 'Game 3: TRANSFER’s mechanics with an angular, lit-circuit renderer (bloom + light-through-trace).',
+  },
+  {
     name: 'BREACH',
     status: 'planned',
     fantasy:
