@@ -66,8 +66,9 @@ const timerColor = (f: number): string =>
 
 export function mountConstellation(
   canvas: HTMLCanvasElement,
-  initial: { difficulty: Difficulty; seed: string; skill: Skill },
+  initial: { difficulty: Difficulty; seed: string; skill: Skill; style?: 'halftone' | 'orb' },
 ): Mounted {
+  const orb = initial.style === 'orb';
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x08080d, 1);
@@ -235,12 +236,16 @@ export function mountConstellation(
     }
     cloud = new HalftoneCloud(live, {
       radius: 1,
-      sizeNear: 6,
-      sizeFar: 2.5,
-      inkNear: 0.9,
-      inkFar: 0.14,
+      // orbs read as 3D spheres, so give depth a wider size spread and higher
+      // shade contrast (near = big + bright, far = small + dim)
+      sizeNear: orb ? 17 : 6,
+      sizeFar: orb ? 3.5 : 2.5,
+      inkNear: orb ? 1.0 : 0.9,
+      inkFar: orb ? 0.1 : 0.14,
       emphasisGain: 0.85,
       pixelRatio: renderer.getPixelRatio(),
+      orb,
+      orbTint: 0x9fc4ff,
     });
     scene.add(cloud.points);
 

@@ -25,6 +25,11 @@ export interface HalftoneOptions {
   flashColor?: number;
   /** Color of extracted (picked) points. */
   pickedColor?: number;
+  /** Render each point as a small lit "thinking orb" (sphere + glow) instead of
+   *  a flat halftone dot. Depth still drives size + shade. */
+  orb?: boolean;
+  /** Tint of the orbs (only used when `orb` is true). */
+  orbTint?: number;
 }
 
 const VERT = /* glsl */ `
@@ -80,6 +85,50 @@ const FRAG = /* glsl */ `
   }
 `;
 
+// "Thinking orb" variant: each point is a small lit sphere (fake hemisphere
+// normal → diffuse + specular hotspot) wrapped in a soft glow halo. Depth is
+// read as size (vertex shader) + shade (vInk brightness), so nearer orbs are
+// bigger and brighter, farther orbs smaller and dimmer.
+const FRAG_ORB = /* glsl */ `
+  precision mediump float;
+  uniform float uEmphasisGain;
+  uniform highp float uFlash;
+  uniform vec3 uFlashColor;
+  uniform vec3 uPickedColor;
+  uniform vec3 uOrbTint;
+  varying float vInk;
+  varying float vEmph;
+  varying float vPicked;
+
+  void main() {
+    vec2 uv = (gl_PointCoord - 0.5) * 2.0;          // -1..1
+    float r = length(uv);
+    if (r > 1.0) discard;
+
+    float ink = clamp(vInk + uEmphasisGain * max(vEmph, vPicked), 0.0, 1.0);
+    const float core = 0.68;                         // sphere fills the inner 68%
+    float sr = clamp(r / core, 0.0, 1.0);
+    float z = sqrt(max(0.0, 1.0 - sr * sr));         // hemisphere normal.z
+    vec3 N = vec3(uv.x, -uv.y, z);
+    vec3 L = normalize(vec3(-0.4, 0.5, 0.85));       // key light, upper-left
+    float diff = clamp(dot(N, L), 0.0, 1.0);
+    float spec = pow(diff, 22.0);                    // tight highlight
+
+    vec3 tint = uOrbTint;
+    vec3 ball = tint * (0.42 + 0.58 * ink) * (0.24 + 0.76 * diff) + vec3(spec) * (0.5 + 0.5 * ink);
+    vec3 halo = tint * (0.28 + 0.55 * ink);
+    float ballMask = 1.0 - smoothstep(core - 0.04, core + 0.04, r);
+    float glow = exp(-pow(max(0.0, r - core) / (1.0 - core), 2.0) * 3.2);
+
+    vec3 col = mix(halo, ball, ballMask);
+    col = mix(col, uFlashColor, clamp(vEmph, 0.0, 1.0) * uFlash);
+    col = mix(col, uPickedColor, vPicked);
+    float alpha = max(ballMask, glow * (0.32 + 0.5 * ink) * (1.0 - ballMask));
+    if (alpha <= 0.003) discard;
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
 export class HalftoneCloud {
   readonly points: THREE.Points;
   readonly material: THREE.ShaderMaterial;
@@ -110,9 +159,10 @@ export class HalftoneCloud {
         uFlash: { value: 0 },
         uFlashColor: { value: new THREE.Color(opts.flashColor ?? 0xffcf6a) },
         uPickedColor: { value: new THREE.Color(opts.pickedColor ?? 0x6fe0b8) },
+        uOrbTint: { value: new THREE.Color(opts.orbTint ?? 0x9fc4ff) },
       },
       vertexShader: VERT,
-      fragmentShader: FRAG,
+      fragmentShader: opts.orb ? FRAG_ORB : FRAG,
       transparent: true,
       depthTest: true,
       depthWrite: true,

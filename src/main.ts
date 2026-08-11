@@ -9,12 +9,12 @@ import type { TransferGame } from './games/transfer/play.ts';
 import type { Difficulty, Skill } from './engine/session.ts';
 
 // App entry + tiny router. Press 1 = CONSTELLATION, 2 = TRANSFER, 3 = CIRCUIT,
-// 4 = SHAPES, 5 = TUBES. R (or the ⟳ button) reseeds the current game. Dev log
-// mounts once.
+// 4 = SHAPES, 5 = TUBES, 6 = CONSTELLATION (orbs). R (or the ⟳ button) reseeds
+// the current game. Dev log mounts once.
 mountDevLog();
 
 const CFG = { difficulty: 2 as Difficulty, skill: 2 as Skill };
-type GameName = 'constellation' | 'transfer' | 'circuit' | 'shapes' | 'tubes';
+type GameName = 'constellation' | 'transfer' | 'circuit' | 'shapes' | 'tubes' | 'constellation-orbs';
 const DUEL = new Set<GameName>(['transfer', 'circuit', 'shapes', 'tubes']);
 
 // The four duel games share the scaling ladder (a class matchup per rung): win a
@@ -46,7 +46,7 @@ function showError(err: unknown): void {
 
 // URL is <base>N — /1 constellation … /5 tubes (base is '/' in dev, a sub-path
 // like '/hacking-mini-games/' on GitHub Pages).
-const GAMES: GameName[] = ['constellation', 'transfer', 'circuit', 'shapes', 'tubes'];
+const GAMES: GameName[] = ['constellation', 'transfer', 'circuit', 'shapes', 'tubes', 'constellation-orbs'];
 const BASE = import.meta.env.BASE_URL;
 let current: Game | null = null;
 let currentName: GameName = 'constellation';
@@ -77,7 +77,9 @@ function mountGame(name: GameName): void {
             ? mountShapes(canvas, duel('solids'))
             : name === 'tubes'
               ? mountTubes(canvas, duel('wired'))
-              : mountConstellation(canvas, { ...CFG, seed: 'aurora' });
+              : name === 'constellation-orbs'
+                ? mountConstellation(canvas, { ...CFG, seed: 'orbs', style: 'orb' })
+                : mountConstellation(canvas, { ...CFG, seed: 'aurora' });
     (window as unknown as { __cx: Game }).__cx = current;
   } catch (err) {
     console.error(err);
