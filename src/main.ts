@@ -5,6 +5,7 @@ import { mountShapes } from './games/shapes/view.ts';
 import { mountTubes } from './games/tubes/view.ts';
 import { mountConstellationOrbs } from './games/constellation-orbs/view.ts';
 import { mountDevLog } from './devlog/panel.ts';
+import { mountLanding } from './landing.ts';
 import { LADDER, type MatchSpec } from './games/transfer/model.ts';
 import type { TransferGame } from './games/transfer/play.ts';
 import type { Difficulty, Skill } from './engine/session.ts';
@@ -65,6 +66,8 @@ function mountGame(name: GameName): void {
   current?.dispose();
   seq = 0;
   currentName = name;
+  landing.hide();
+  setChrome(true);
   history.replaceState(null, '', `${BASE}${GAMES.indexOf(name) + 1}`);
   const canvas = freshCanvas();
   const duel = (seed: string) => ({ spec: LADDER[rung]!, seed, skill: CFG.skill });
@@ -130,6 +133,35 @@ resetBtn.style.cssText =
 resetBtn.addEventListener('click', reseed);
 document.body.appendChild(resetBtn);
 
+// Home (⌂) — back to the game picker. Sits just left of the reset button.
+const homeBtn = document.createElement('button');
+homeBtn.textContent = '⌂';
+homeBtn.setAttribute('aria-label', 'back to game picker');
+homeBtn.style.cssText =
+  'position:fixed;top:8px;right:60px;z-index:2147483646;width:44px;height:44px;' +
+  'border-radius:50%;border:1px solid #2c2c38;background:rgba(12,13,20,.6);color:#9a9aa6;' +
+  'font:18px/44px ui-monospace,Menlo,monospace;text-align:center;cursor:pointer;' +
+  'padding:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation';
+homeBtn.addEventListener('click', goHome);
+document.body.appendChild(homeBtn);
+
+// Show/hide the in-game chrome (reset + home). The landing is the hub, so both
+// are hidden there.
+function setChrome(active: boolean): void {
+  resetBtn.style.display = active ? 'block' : 'none';
+  homeBtn.style.display = active ? 'block' : 'none';
+}
+
+function goHome(): void {
+  current?.dispose();
+  current = null;
+  (window as unknown as { __cx: Game | null }).__cx = null;
+  setChrome(false);
+  ladderHud.style.display = 'none';
+  history.replaceState(null, '', BASE);
+  landing.show();
+}
+
 // Ladder progress readout (duel games only) so the scaling difficulty is
 // visible: current rung + matchup, and which way the last result moved it.
 const ladderHud = document.createElement('div');
@@ -152,12 +184,21 @@ function updateLadderHud(trend: '' | 'up' | 'down' = ''): void {
     `<span style="color:#5a5a64">win → climb · lose → reset</span>`;
 }
 
+const landing = mountLanding((game) => mountGame(game));
+
+// Deep-link /1../6 straight into a game; the bare base URL shows the picker.
 const rel = location.pathname.startsWith(BASE) ? location.pathname.slice(BASE.length) : location.pathname.replace(/^\//, '');
 const startNum = parseInt(rel.replace(/\D/g, ''), 10);
-mountGame(GAMES[startNum - 1] ?? 'tubes'); // game 5 is the default landing
+if (startNum >= 1 && startNum <= GAMES.length) {
+  mountGame(GAMES[startNum - 1]!);
+} else {
+  setChrome(false);
+  landing.show();
+}
 
 window.addEventListener('keydown', (e) => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= GAMES.length) mountGame(GAMES[n - 1]!);
-  else if (e.key === 'r' || e.key === 'R') reseed();
+  else if (e.key === 'Escape') goHome();
+  else if ((e.key === 'r' || e.key === 'R') && current) reseed();
 });
