@@ -27,8 +27,10 @@ function showError(err: unknown): void {
   document.body.appendChild(box);
 }
 
-// URL is /N — /1 constellation, /2 transfer, /3 circuit, /4 shapes, /5 tubes.
+// URL is <base>N — /1 constellation … /5 tubes (base is '/' in dev, a sub-path
+// like '/hacking-mini-games/' on GitHub Pages).
 const GAMES: GameName[] = ['constellation', 'transfer', 'circuit', 'shapes', 'tubes'];
+const BASE = import.meta.env.BASE_URL;
 let current: Game | null = null;
 let currentName: GameName = 'constellation';
 let seq = 0;
@@ -45,7 +47,7 @@ function mountGame(name: GameName): void {
   current?.dispose();
   seq = 0;
   currentName = name;
-  history.replaceState(null, '', `/${GAMES.indexOf(name) + 1}`);
+  history.replaceState(null, '', `${BASE}${GAMES.indexOf(name) + 1}`);
   const canvas = freshCanvas();
   try {
     current =
@@ -65,8 +67,9 @@ function mountGame(name: GameName): void {
   }
 }
 
-const startNum = parseInt(location.pathname.replace(/\D/g, ''), 10);
-mountGame(GAMES[startNum - 1] ?? 'constellation');
+const rel = location.pathname.startsWith(BASE) ? location.pathname.slice(BASE.length) : location.pathname.replace(/^\//, '');
+const startNum = parseInt(rel.replace(/\D/g, ''), 10);
+mountGame(GAMES[startNum - 1] ?? 'tubes'); // game 5 is the default landing
 
 window.addEventListener('keydown', (e) => {
   const n = parseInt(e.key, 10);

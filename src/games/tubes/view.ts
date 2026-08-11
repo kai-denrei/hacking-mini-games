@@ -188,17 +188,19 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     dy /= l;
     return [dx, dy, -dy, dx]; // dir + perp
   };
-  const nearestI = (dots: TraceDot[], u: number): number => {
-    let bi = 0;
-    let bd = 9;
-    for (let i = 0; i < dots.length; i++) {
-      const dd = Math.abs(dots[i]!.u - u);
-      if (dd < bd) {
-        bd = dd;
-        bi = i;
-      }
-    }
-    return bi;
+  // smooth interpolated point (+ perp) at fractional u — no snapping to samples
+  const pointAtU = (dots: TraceDot[], u: number): { x: number; y: number; nx: number; ny: number } => {
+    let i = 0;
+    while (i < dots.length - 2 && dots[i + 1]!.u < u) i++;
+    const a = dots[i]!;
+    const b = dots[Math.min(i + 1, dots.length - 1)]!;
+    const t = Math.max(0, Math.min(1, (u - a.u) / (b.u - a.u || 1)));
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    const l = Math.hypot(dx, dy) || 1;
+    dx /= l;
+    dy /= l;
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, nx: -dy, ny: dx };
   };
   function drawTube(dots: TraceDot[], dim: RGB, flow: RGB, lightAt: (u: number) => { b: number; col: RGB }, endU: number, nowSec: number, phase: number): void {
     const wall: RGB = [dim[0]! * 0.7, dim[1]! * 0.7, dim[2]! * 0.7];
@@ -217,20 +219,18 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
         field.dot(d.x + nx * off * TUBE_R, d.y + ny * off * TUBE_R, wc[0] * wb, wc[1] * wb, wc[2] * wb, 1.6 + b * 2.2, 0.85);
       }
     }
-    // working current: particles flowing along the tube, spiralling its section
-    const PN = 3;
+    // working current: a smooth continuous stream of light travelling +
+    // spiralling along the tube (interpolated, so it glides instead of stepping)
+    const PN = 5;
     for (let k = 0; k < PN; k++) {
-      const u = (nowSec * 0.14 + k / PN + phase * 0.13) % 1;
-      if (u <= 0.01 || u > endU - 0.01) continue;
-      const i = nearestI(dots, u);
-      const d = dots[i]!;
-      const [dx, dy, nx, ny] = dirAt(dots, i);
-      for (let s = 0; s < 3; s++) {
-        const spiral = Math.sin((u - s * 0.015) * 30 + nowSec * 2.4 + phase) * TUBE_R * 1.1;
-        const px = d.x - dx * s * 0.02 + nx * spiral;
-        const py = d.y - dy * s * 0.02 + ny * spiral;
-        const a = 0.9 - s * 0.3;
-        field.dot(px, py, flow[0]! * a, flow[1]! * a, flow[2]! * a, 3.4 - s, 0.95);
+      const head = (nowSec * 0.13 + k / PN + phase * 0.13) % 1;
+      for (let s = 0; s < 5; s++) {
+        const uu = head - s * 0.022;
+        if (uu <= 0.005 || uu > endU) continue;
+        const q = pointAtU(dots, uu);
+        const spiral = Math.sin(uu * 24 + nowSec * 2.2 + phase) * TUBE_R;
+        const a = (1 - s / 5) * 0.85;
+        field.dot(q.x + q.nx * spiral, q.y + q.ny * spiral, flow[0]! * a, flow[1]! * a, flow[2]! * a, 2.8 - s * 0.4, 0.92);
       }
     }
   }
