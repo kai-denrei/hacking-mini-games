@@ -2,15 +2,16 @@ import { mountConstellation } from './games/constellation/view.ts';
 import { mountTransfer } from './games/transfer/view.ts';
 import { mountCircuit } from './games/circuit/view.ts';
 import { mountShapes } from './games/shapes/view.ts';
+import { mountTubes } from './games/tubes/view.ts';
 import { mountDevLog } from './devlog/panel.ts';
 import type { Difficulty, Skill } from './engine/session.ts';
 
 // App entry + tiny router. Press 1 = CONSTELLATION, 2 = TRANSFER, 3 = CIRCUIT,
-// 4 = SHAPES. R reseeds the current game. Dev log mounts once, independently.
+// 4 = SHAPES, 5 = TUBES. R reseeds the current game. Dev log mounts once.
 mountDevLog();
 
 const CFG = { difficulty: 2 as Difficulty, skill: 2 as Skill };
-type GameName = 'constellation' | 'transfer' | 'circuit' | 'shapes';
+type GameName = 'constellation' | 'transfer' | 'circuit' | 'shapes' | 'tubes';
 interface Game {
   dispose(): void;
   regenerate(d: Difficulty, seed: string): void;
@@ -52,7 +53,9 @@ function mountGame(name: GameName): void {
           ? mountCircuit(canvas, { ...CFG, seed: 'grid' })
           : name === 'shapes'
             ? mountShapes(canvas, { ...CFG, seed: 'solids' })
-            : mountConstellation(canvas, { ...CFG, seed: 'aurora' });
+            : name === 'tubes'
+              ? mountTubes(canvas, { ...CFG, seed: 'wired' })
+              : mountConstellation(canvas, { ...CFG, seed: 'aurora' });
     (window as unknown as { __cx: Game }).__cx = current;
   } catch (err) {
     console.error(err);
@@ -61,13 +64,14 @@ function mountGame(name: GameName): void {
 }
 
 const startHash = location.hash.replace('#', '') as GameName;
-mountGame(['transfer', 'circuit', 'shapes'].includes(startHash) ? startHash : 'constellation');
+mountGame(['transfer', 'circuit', 'shapes', 'tubes'].includes(startHash) ? startHash : 'constellation');
 
 window.addEventListener('keydown', (e) => {
   if (e.key === '1') mountGame('constellation');
   else if (e.key === '2') mountGame('transfer');
   else if (e.key === '3') mountGame('circuit');
   else if (e.key === '4') mountGame('shapes');
+  else if (e.key === '5') mountGame('tubes');
   else if ((e.key === 'r' || e.key === 'R') && current) {
     seq += 1;
     current.regenerate(CFG.difficulty, `${currentName}-${seq}`);

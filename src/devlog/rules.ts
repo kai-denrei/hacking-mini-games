@@ -80,6 +80,19 @@ export const RULES: GameRules[] = [
     note: 'Game 4: a Braille-Lab Modes × Primitives experiment over TRANSFER’s mechanics.',
   },
   {
+    name: 'TUBES',
+    status: 'playable',
+    fantasy:
+      'The takeover duel where you can finally read the wiring. Two circuits of glowing tubes; each terminal fans out through inverters, repeaters and dead-ends to the register strip. Read them, take the better side, spend your pulses well.',
+    how: [
+      'Press 5. PLAN: hover any terminal to light its tubes and preview which cells it reaches (rings coloured by element). Read both sides, then click the better circuit to take it.',
+      'A tube carrying an ◍ inverts the cell it reaches; a ◆ arms a repeat-gun; a ✕ dead-ends and wastes the pulse. A fork is two tubes.',
+      'RUN: fire your terminals; light threads the tubes and claims cells. Later light wins a contested cell.',
+    ],
+    fail: ['Fail to hold the majority when the timer runs out.'],
+    note: 'Game 5: the read-the-circuit model. Elements are derived from the (verified) outcome sim; the deeper 8×4 lane grid with JOIN is a later step.',
+  },
+  {
     name: 'BREACH',
     status: 'planned',
     fantasy:

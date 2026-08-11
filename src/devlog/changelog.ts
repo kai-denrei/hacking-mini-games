@@ -23,14 +23,25 @@ export interface RoadmapPhase {
 }
 
 export const STATUS =
-  'Four games. CONSTELLATION (point-cloud extraction), TRANSFER (circuit duel), ' +
-  'CIRCUIT (the duel as a lit circuit board), and the experimental SHAPES — the ' +
-  'duel with Braille-Lab primitives: searching octahedra/cubes as terminals that ' +
-  'resolve into solving solids when claimed. Press 1 / 2 / 3 / 4; R reseeds.';
+  'Five games. CONSTELLATION, TRANSFER, CIRCUIT, SHAPES, and TUBES — the ' +
+  'read-the-circuit model: wires are dotted tubes carrying visible elements ' +
+  '(invert / repeat / dead), and you hover a terminal to preview its reach. ' +
+  'Reading the two circuits to pick the better side is the skill. Press 1–5; R reseeds.';
 
 export const MILESTONES: Milestone[] = [
   {
     build: 'live',
+    date: '2026-08-11',
+    title: 'TUBES (game 5) — the read-the-circuit model',
+    added: [
+      'Wires are thin dotted tubes (a cut-and-straightened torus: lit round core + dim walls).',
+      'Every terminal is legible: a fork is two tubes, and each tube carries a visible element — an INVERT ring, a REPEAT node, or a DEAD stub that never reaches a cell.',
+      'Hover a terminal to preview its reach (its tubes light up and the cells it reaches are ringed by element colour). Reading both circuits to pick the better side is the skill.',
+      'Light still flows through the tubes; mechanics reuse TRANSFER.',
+    ],
+  },
+  {
+    build: null,
     date: '2026-08-11',
     title: 'SHAPES (game 4, experimental) — Modes × Primitives',
     added: [
