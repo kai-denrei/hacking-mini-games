@@ -4,10 +4,10 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { DotField } from '../../render/dotfield.ts';
-import { searching, type Shape, type PDot } from '../../render/primitives.ts';
+import { searching, solving, type Shape, type PDot } from '../../render/primitives.ts';
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
-import { layerOf, type Board, type OutcomeKind } from '../transfer/model.ts';
+import { layerOf, type Board, type OutcomeKind, type Owner } from '../transfer/model.ts';
 import { cellPos, termPos, setVerticalGain, gainFor, vGain, type Side } from '../transfer/layout.ts';
 import { traceDots, type TraceDot } from '../circuit/route.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
@@ -364,17 +364,28 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
       field.dot(q.x, q.y, col[0], col[1], col[2], 9);
     }
 
-    // cells (+ reach-preview highlight rings)
+    // cells (+ reach-preview highlight rings). A captured node becomes the
+    // SOLVING solid of the circuit that took it — octahedron for the left
+    // circuit, cube for the right (matching each side's terminals). Neutral
+    // nodes stay a dim cluster.
+    const enemySide: Side | null = game.playerSide ? (game.playerSide === 'left' ? 'right' : 'left') : null;
+    const ownerSide = (o: Owner): Side | null => (o === 'P' ? game.playerSide : o === 'E' ? enemySide : null);
     const previewCells = new Map<number, OutcomeKind>();
     if (previewing) for (const r of routes) if (r.side === hoverSide && r.term === hoverTerm && r.kind !== 'DEAD') previewCells.set(r.cell, r.kind);
     for (let i = 0; i < 12; i++) {
       const [x, y] = cellPos(i);
       const owner = game.owners[i]!;
-      const base = owner === 'P' ? C.p : owner === 'E' ? C.e : C.cellN;
       const flash = game.claimFlash[i]! / 0.35;
-      const s = 0.026;
-      const col = mix(base, C.white, flash * 0.7);
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) field.dot(x + dx * s, y + dy * s, col[0], col[1], col[2], owner === 'NEUTRAL' ? 4.5 : 5.5);
+      const oside = ownerSide(owner);
+      if (oside) {
+        const shape: Shape = oside === 'left' ? 'octa' : 'cube';
+        const col = mix(owner === 'P' ? C.p : C.e, C.white, flash * 0.6);
+        drawPrim(solving(shape, nowSec + i * 0.5), x, y, 0.04, col, 0.95 + flash);
+      } else {
+        const s = 0.026;
+        const col = mix(C.cellN, C.white, flash * 0.7);
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) field.dot(x + dx * s, y + dy * s, col[0], col[1], col[2], 4.5);
+      }
       const pk = previewCells.get(i);
       if (pk) ring(x, y, 0.058, kindColor(pk), 3, 0.9);
     }
