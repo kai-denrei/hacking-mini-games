@@ -3,6 +3,7 @@ import { mountTransfer } from './games/transfer/view.ts';
 import { mountCircuit } from './games/circuit/view.ts';
 import { mountShapes } from './games/shapes/view.ts';
 import { mountTubes } from './games/tubes/view.ts';
+import { mountConstellationOrbs } from './games/constellation-orbs/view.ts';
 import { mountDevLog } from './devlog/panel.ts';
 import { LADDER, type MatchSpec } from './games/transfer/model.ts';
 import type { TransferGame } from './games/transfer/play.ts';
@@ -78,7 +79,7 @@ function mountGame(name: GameName): void {
             : name === 'tubes'
               ? mountTubes(canvas, duel('wired'))
               : name === 'constellation-orbs'
-                ? mountConstellation(canvas, { ...CFG, seed: 'orbs', style: 'orb' })
+                ? mountConstellationOrbs(canvas, { ...CFG, seed: 'orbs' })
                 : mountConstellation(canvas, { ...CFG, seed: 'aurora' });
     (window as unknown as { __cx: Game }).__cx = current;
   } catch (err) {

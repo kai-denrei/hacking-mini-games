@@ -1,25 +1,18 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HalftoneCloud } from '../../render/halftone';
-import { generateBoard, coherence, TIERS, type Board, type CloudPoint } from './generate.ts';
-import { ConstellationGame } from './game.ts';
+import { generateBoard, coherence, TIERS, type Board, type CloudPoint } from '../constellation/generate.ts';
+import { ConstellationGame } from '../constellation/game.ts';
 import { CONSTELLATION_GLYPHS, type Glyph } from '../../glyphs/bank.ts';
-import {
-  type Vec3,
-  dot,
-  sub,
-  scale,
-  normalize,
-  angleDeg,
-  rotateAroundAxis,
-  randDir,
-} from '../../math/vec3.ts';
+import { drawOrb, orbModeFor } from '../../render/thinkingOrbs.ts';
+import { type Vec3, dot, sub, scale, normalize, angleDeg, rotateAroundAxis, randDir } from '../../math/vec3.ts';
 import { makeRng, type RNG } from '../../engine/rng.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
 
-// CONSTELLATION — Phase 1 (find the angle) + Phase 2 (extract). Orbit to align;
-// when a lock resolves, click its glyph points to extract them. Avoid TRIP
-// hazards, beat the sweep + timer. See game.ts for the rules.
+// CONSTELLATION (orbs) — the same orbit-to-find + extract game as #1, but the
+// point cloud is a field of small "thinking orbs" (Braille Lab's dotted 3D
+// thought-orbs: searching / listening / solving), each a mini animated dotted
+// sphere. Depth is read as orb size + shade. Rendered in plain 2D canvas: the
+// THREE camera + OrbitControls drive the orbit and projection only.
 
 const smoothstep = (a: number, b: number, x: number): number => {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -33,7 +26,6 @@ const glyphByName = (name: string): Glyph => {
 
 interface LockView {
   axis: Vec3;
-  axisV3: THREE.Vector3;
   glyph: Glyph;
   signalIdx: number[];
   signalPts: CloudPoint[];
@@ -44,35 +36,35 @@ interface LockView {
 export interface Mounted {
   regenerate(difficulty: Difficulty, seed: string): void;
   alignLock(index: number): void;
-  /** test/debug: extract `count` signal points of lock `l`. */
   debugExtract(l: number, count: number): void;
-  /** test/debug: extract everything → WON. */
   debugSolve(): void;
-  /** test/debug: force the timer to a fraction of T_run (and enter RUN). */
   debugTime(frac: number): void;
   dispose(): void;
 }
 
 const ARC_DOTS = 30;
-
 const TEAL = [93, 202, 165];
 const AMBER = [224, 176, 112];
 const RED = [208, 96, 90];
 const mix3 = (a: number[], b: number[], t: number): string =>
   `rgb(${Math.round(a[0]! + (b[0]! - a[0]!) * t)},${Math.round(a[1]! + (b[1]! - a[1]!) * t)},${Math.round(a[2]! + (b[2]! - a[2]!) * t)})`;
-// time colour: teal (full) → amber (half) → red (empty)
 const timerColor = (f: number): string =>
   f > 0.5 ? mix3(TEAL, AMBER, (1 - f) / 0.5) : mix3(AMBER, RED, Math.max(0, (0.5 - f) / 0.5));
 
-export function mountConstellation(
+// orb tints (0..1 multipliers over the grayscale ink)
+const TINT_BASE: readonly [number, number, number] = [0.74, 0.82, 0.96]; // cool white
+const TINT_PICK: readonly [number, number, number] = [0.44, 0.9, 0.74]; // extracted (teal)
+const TINT_TRIP: readonly [number, number, number] = [0.96, 0.6, 0.54]; // tripped (brief red)
+const ORB_SPEED = 1.6;
+const ORB_NEAR = 15;
+const ORB_FAR = 3.5;
+
+export function mountConstellationOrbs(
   canvas: HTMLCanvasElement,
   initial: { difficulty: Difficulty; seed: string; skill: Skill },
 ): Mounted {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setClearColor(0x08080d, 1);
-
-  const scene = new THREE.Scene();
+  const ctx = canvas.getContext('2d')!;
+  const DPR = Math.min(2, window.devicePixelRatio || 1);
   const target = new THREE.Vector3(0, 0, 0);
 
   const FRUSTUM_HALF = 1.12;
@@ -84,26 +76,22 @@ export function mountConstellation(
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.enablePan = false;
+  controls.enableZoom = false;
   controls.target.copy(target);
 
-  const raycaster = new THREE.Raycaster();
-  raycaster.params.Points!.threshold = 0.1; // generous; magnetism below picks the right target
-
-  // ── overlay DOM ─────────────────────────────────────────────────────────
+  // ── overlay DOM (mirrors game #1) ─────────────────────────────────────────
   const NS = 'http://www.w3.org/2000/svg';
+  const mono = 'ui-monospace,SFMono-Regular,Menlo,monospace';
   const el = (tag: string, css: string): HTMLElement => {
     const e = document.createElement(tag);
     e.style.cssText = css;
     document.body.appendChild(e);
     return e;
   };
-  const mono = 'ui-monospace,SFMono-Regular,Menlo,monospace';
 
-  // coherence arc (SKILL >= 1)
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '0 0 220 130');
-  svg.style.cssText =
-    'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);width:220px;height:130px;pointer-events:none';
+  svg.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);width:220px;height:130px;pointer-events:none';
   const arcDots: SVGCircleElement[] = [];
   for (let i = 0; i < ARC_DOTS; i++) {
     const a = Math.PI * (1 - i / (ARC_DOTS - 1));
@@ -124,12 +112,10 @@ export function mountConstellation(
   svg.appendChild(glyphLabel);
   if (initial.skill >= 1) document.body.appendChild(svg);
 
-  // timer (top center) — a disc that shrinks and shifts colour as time runs down
   const timerSvg = document.createElementNS(NS, 'svg');
   timerSvg.setAttribute('viewBox', '0 0 48 48');
-  timerSvg.style.cssText =
-    'position:fixed;left:50%;top:10px;transform:translateX(-50%);width:46px;height:46px;pointer-events:none';
-  const timerRing = document.createElementNS(NS, 'circle'); // hollow: circumference only
+  timerSvg.style.cssText = 'position:fixed;left:50%;top:10px;transform:translateX(-50%);width:46px;height:46px;pointer-events:none';
+  const timerRing = document.createElementNS(NS, 'circle');
   timerRing.setAttribute('cx', '24');
   timerRing.setAttribute('cy', '24');
   timerRing.setAttribute('r', '21');
@@ -139,47 +125,27 @@ export function mountConstellation(
   timerSvg.appendChild(timerRing);
   document.body.appendChild(timerSvg);
 
-  // strikes (top right)
-  const strikes = el(
-    'div',
-    `position:fixed;top:10px;right:12px;display:flex;gap:6px;font:13px ${mono};color:#5a5a64;pointer-events:none`,
-  );
+  const strikes = el('div', `position:fixed;top:10px;right:12px;display:flex;gap:6px;font:13px ${mono};color:#5a5a64;pointer-events:none`);
   const pips: HTMLElement[] = [0, 1, 2].map(() => {
     const p = document.createElement('span');
     p.textContent = '✕';
     strikes.appendChild(p);
     return p;
   });
-
-  const progress = el(
-    'div',
-    `position:fixed;left:50%;top:30px;transform:translateX(-50%);font:11px ${mono};color:#8fd0b6;pointer-events:none;opacity:0`,
-  );
-  const hint = el(
-    'div',
-    `position:fixed;left:12px;bottom:12px;font:11px ${mono};color:#55555f;pointer-events:none`,
-  );
-  const reticle = el(
-    'div',
-    'position:fixed;width:16px;height:16px;border:1px solid #6fe0b8;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .1s',
-  );
-  const vignette = el(
-    'div',
-    'position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 120px 20px #d0403a;opacity:0;transition:opacity .3s',
-  );
-  const overlay = el(
-    'div',
-    `position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,8,13,.55);font:${mono};text-align:center;pointer-events:none`,
-  );
+  const progress = el('div', `position:fixed;left:50%;top:30px;transform:translateX(-50%);font:11px ${mono};color:#8fd0b6;pointer-events:none;opacity:0`);
+  const hint = el('div', `position:fixed;left:12px;bottom:12px;font:11px ${mono};color:#55555f;pointer-events:none`);
+  const reticle = el('div', 'position:fixed;width:16px;height:16px;border:1px solid #6fe0b8;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .1s');
+  const vignette = el('div', 'position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 120px 20px #d0403a;opacity:0;transition:opacity .3s');
+  const overlay = el('div', `position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,8,13,.55);font:${mono};text-align:center;pointer-events:none`);
 
   let board!: Board;
   let base!: Float32Array;
   let live!: Float32Array;
   let emph!: Float32Array;
-  let picked!: Float32Array;
+  let scr!: Float32Array; // per-point screen x,y (css px), refreshed each frame
+  let scrOn!: Uint8Array; // 1 = point is in front of camera (projectable)
   let isSignal!: Uint8Array;
-  let popT!: Float32Array; // timestamp (s) of a point's extract-pop, 0 = none
-  let cloud: HalftoneCloud | null = null;
+  let tripFlash!: Float32Array; // brief red on a tripped point
   let lockViews: LockView[] = [];
   let thetaLock = 5;
   let game!: ConstellationGame;
@@ -202,9 +168,10 @@ export function mountConstellation(
     });
     live = base.slice();
     emph = new Float32Array(n);
-    picked = new Float32Array(n);
+    scr = new Float32Array(n * 2);
+    scrOn = new Uint8Array(n);
     isSignal = new Uint8Array(n);
-    popT = new Float32Array(n);
+    tripFlash = new Float32Array(n);
 
     lockViews = board.locks.map((lock) => {
       const signalIdx: number[] = [];
@@ -218,44 +185,23 @@ export function mountConstellation(
           flat.set(i, sub(pt.pos, scale(lock.axis, dot(pt.pos, lock.axis))));
         }
       });
-      return {
-        axis: lock.axis,
-        axisV3: new THREE.Vector3(...lock.axis),
-        glyph: glyphByName(lock.glyph),
-        signalIdx,
-        signalPts,
-        flat,
-        coherence: 0,
-      };
+      return { axis: lock.axis, glyph: glyphByName(lock.glyph), signalIdx, signalPts, flat, coherence: 0 };
     });
 
-    if (cloud) {
-      scene.remove(cloud.points);
-      cloud.dispose();
-    }
-    cloud = new HalftoneCloud(live, {
-      radius: 1,
-      sizeNear: 6,
-      sizeFar: 2.5,
-      inkNear: 0.9,
-      inkFar: 0.14,
-      emphasisGain: 0.85,
-      pixelRatio: renderer.getPixelRatio(),
-    });
-    scene.add(cloud.points);
-
-    hint.textContent = `D${difficulty} · ${seed} · ${board.locks.length} lock(s) · drag to orbit · click to extract · R`;
+    hint.textContent = `D${difficulty} · ${seed} · ${board.locks.length} lock(s) · orbit to align · click to extract · R`;
     overlay.style.display = 'none';
     engaged = false;
     prevEngaged = false;
   }
-
   build(initial.difficulty, initial.seed);
 
   function resize(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    renderer.setSize(w, h);
+    canvas.width = Math.round(w * DPR);
+    canvas.height = Math.round(h * DPR);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
     const aspect = w / h;
     camera.left = -FRUSTUM_HALF * aspect;
     camera.right = FRUSTUM_HALF * aspect;
@@ -266,14 +212,12 @@ export function mountConstellation(
   window.addEventListener('resize', resize);
   resize();
 
-  // rotate a whole lock (points + axis) by a small drift each sweep (D4+)
   function driftLock(l: number): void {
     const lv = lockViews[l];
     if (!lv) return;
-    const ang = (2 * Math.PI) / 180 * driftRng();
+    const ang = ((2 * Math.PI) / 180) * driftRng();
     const ax = randDir(driftRng);
     lv.axis = normalize(rotateAroundAxis(lv.axis, ax, ang));
-    lv.axisV3.set(...lv.axis);
     board.points.forEach((pt, i) => {
       if (pt.lock !== l) return;
       pt.pos = rotateAroundAxis(pt.pos, ax, ang);
@@ -288,34 +232,41 @@ export function mountConstellation(
     }
   }
 
-  // ── input: click-to-extract (small pointer move) vs drag-to-orbit ─────────
+  // ── input ─────────────────────────────────────────────────────────────────
   let downX = 0;
   let downY = 0;
   let mouseX = -1;
   let mouseY = -1;
-  const ndc = (x: number, y: number): [number, number] => {
-    const r = canvas.getBoundingClientRect();
-    return [((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1];
-  };
-  function pickIndex(x: number, y: number): number {
-    if (!cloud) return -1;
-    const [nx, ny] = ndc(x, y);
-    raycaster.setFromCamera(new THREE.Vector2(nx, ny), camera);
-    const hits = raycaster.intersectObject(cloud.points, false);
-    if (!hits.length) return -1;
-    hits.sort((a, b) => (a.distanceToRay ?? 9) - (b.distanceToRay ?? 9));
-    // magnet: prefer the nearest un-extracted signal of the focus lock, so aiming
-    // near the glyph reliably grabs a glyph point. A TRIP is only picked when no
-    // such signal is near the cursor (you have to aim at the hazard to hit it).
-    for (const h of hits) {
-      const i = h.index;
-      if (i == null) continue;
-      const p = board.points[i];
-      if (p && p.pop === 'SIGNAL' && p.lock === bestLock && !game.extracted[bestLock]?.has(i)) return i;
-    }
-    return hits[0]!.index ?? -1;
-  }
   let bestLock = -1;
+  const vNdc = new THREE.Vector3();
+  const vView = new THREE.Vector3();
+
+  function pickIndex(x: number, y: number): number {
+    const r = canvas.getBoundingClientRect();
+    const px = x - r.left;
+    const py = y - r.top;
+    let bestSignal = -1;
+    let bestSignalD = 26 * 26;
+    let bestAny = -1;
+    let bestAnyD = 20 * 20;
+    for (let i = 0; i < scrOn.length; i++) {
+      if (!scrOn[i]) continue;
+      const dx = scr[i * 2]! - px;
+      const dy = scr[i * 2 + 1]! - py;
+      const d2 = dx * dx + dy * dy;
+      const pt = board.points[i]!;
+      if (pt.pop === 'SIGNAL' && pt.lock === bestLock && !game.extracted[bestLock]?.has(i) && d2 < bestSignalD) {
+        bestSignalD = d2;
+        bestSignal = i;
+      }
+      if (d2 < bestAnyD) {
+        bestAnyD = d2;
+        bestAny = i;
+      }
+    }
+    return bestSignal >= 0 ? bestSignal : bestAny; // magnet toward the focus lock's signal
+  }
+
   canvas.addEventListener('pointerdown', (e) => {
     downX = e.clientX;
     downY = e.clientY;
@@ -326,24 +277,22 @@ export function mountConstellation(
   });
   canvas.addEventListener('pointerup', (e) => {
     const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
-    if (moved > 5 || !engaged || game.over || bestLock < 0) return; // a drag, or not aligned
+    if (moved > 5 || !engaged || game.over || bestLock < 0) return;
     const idx = pickIndex(e.clientX, e.clientY);
     if (idx < 0) return;
     const outcome = game.select(idx, bestLock);
-    if (outcome === 'extract' || outcome === 'lockDone' || outcome === 'won') {
-      popT[idx] = performance.now() / 1000;
-    } else if (outcome === 'trip') {
+    if (outcome === 'trip') {
+      tripFlash[idx] = 0.5;
       vignette.style.opacity = '0.9';
       setTimeout(() => (vignette.style.opacity = '0'), 60);
     }
   });
 
-  // soft-snap scratch
   const tmpDir = new THREE.Vector3();
   const qStep = new THREE.Quaternion();
   const qTo = new THREE.Quaternion();
   const qId = new THREE.Quaternion();
-  const rProj = new THREE.Vector3();
+  const axisV3 = new THREE.Vector3();
 
   function showOverlay(): void {
     const r = game.result();
@@ -351,7 +300,6 @@ export function mountConstellation(
     let title = '';
     let sub = '';
     if (game.phase === 'WON') {
-      color = '#8fd0b6';
       title = '◆ EXTRACTED';
       sub = `keys: ${r.keys.join(' · ')}\nmargin ${r.margin.toFixed(0)} · ${r.trips} strike(s)`;
     } else if (game.phase === 'LOST_CRIT') {
@@ -379,6 +327,7 @@ export function mountConstellation(
     lastT = now;
 
     controls.update();
+    camera.updateMatrixWorld();
     const cp = camera.position;
     const viewDir = normalize([cp.x - target.x, cp.y - target.y, cp.z - target.z]);
 
@@ -395,7 +344,7 @@ export function mountConstellation(
       if (ang < nearestAngle) nearestAngle = ang;
     });
 
-    // contraction + emphasis; dim noise as a lock forms
+    // contraction + emphasis; dim noise as a lock forms (identical to #1)
     live.set(base);
     emph.fill(0);
     let globalLock = 0;
@@ -419,101 +368,121 @@ export function mountConstellation(
       for (let i = 0; i < emph.length; i++) if (!isSignal[i]) emph[i] = -suppress;
     }
 
-    // game tick (timer, sweep, wipe) — aligned gates extraction
     const aligned = engaged && best > 0.6;
     const { wrapped } = game.tick(dt, aligned, bestLock);
     if (wrapped && game.drift && bestLock >= 0) driftLock(bestLock);
 
-    // sweep scan-line glow (RUN only)
+    // sweep scan-line emphasis (RUN only)
     if (game.phase === 'RUN' && game.tSweep) {
       const sweepY = -1 + 2 * game.sweepT;
-      const band = 0.14;
+      const bandH = 0.14;
       for (let i = 0; i < emph.length; i++) {
         const dy = Math.abs(live[i * 3 + 1]! - sweepY);
-        if (dy < band) emph[i] = emph[i]! + (1 - dy / band) * 0.7;
+        if (dy < bandH) emph[i] = emph[i]! + (1 - dy / bandH) * 0.7;
       }
     }
 
-    // extract pop — brief bloom on freshly extracted points
-    for (let i = 0; i < popT.length; i++) {
-      const t0 = popT[i]!;
-      if (t0 > 0) {
-        const e = 1 - (nowSec - t0) / 0.3;
-        if (e > 0) emph[i] = emph[i]! + e * 0.9;
-        else popT[i] = 0;
-      }
-    }
-
-    // hover highlight + reticle (snaps onto the target point; red over a hazard)
+    // hover highlight (adds emphasis to the hovered orb)
+    let hoverIdx = -1;
     if (engaged && !game.over && mouseX >= 0) {
-      const hoverIdx = pickIndex(mouseX, mouseY);
-      const rect = canvas.getBoundingClientRect();
-      if (hoverIdx >= 0) {
-        emph[hoverIdx] = emph[hoverIdx]! + 0.5;
-        rProj.set(live[hoverIdx * 3]!, live[hoverIdx * 3 + 1]!, live[hoverIdx * 3 + 2]!).project(camera);
-        reticle.style.left = `${rect.left + (rProj.x * 0.5 + 0.5) * rect.width}px`;
-        reticle.style.top = `${rect.top + (-rProj.y * 0.5 + 0.5) * rect.height}px`;
-        reticle.style.borderColor = board.points[hoverIdx]?.pop === 'TRIP' ? '#d0605a' : '#6fe0b8';
-      } else {
-        reticle.style.left = `${mouseX}px`;
-        reticle.style.top = `${mouseY}px`;
-        reticle.style.borderColor = '#44444c';
+      hoverIdx = pickIndex(mouseX, mouseY);
+      if (hoverIdx >= 0) emph[hoverIdx] = emph[hoverIdx]! + 0.5;
+    }
+
+    // extracted (picked) points
+    const focus = cp.distanceTo(target);
+    const flash = Math.max(0, 1 - (nowSec - flashStart) / FLASH_DUR);
+
+    // ── project every point → screen + depth, then draw far→near ─────────────
+    const n = board.points.length;
+    const order: number[] = [];
+    const depth = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      vView.set(live[i * 3]!, live[i * 3 + 1]!, live[i * 3 + 2]!).applyMatrix4(camera.matrixWorldInverse);
+      depth[i] = Math.max(0, Math.min(1, (-vView.z - (focus - 1)) / 2)); // 0 near .. 1 far
+      vNdc.set(live[i * 3]!, live[i * 3 + 1]!, live[i * 3 + 2]!).project(camera);
+      scr[i * 2] = (vNdc.x * 0.5 + 0.5) * window.innerWidth;
+      scr[i * 2 + 1] = (-vNdc.y * 0.5 + 0.5) * window.innerHeight;
+      scrOn[i] = 1;
+      order.push(i);
+      if (tripFlash[i]! > 0) tripFlash[i] = Math.max(0, tripFlash[i]! - dt);
+    }
+    order.sort((a, b) => depth[b]! - depth[a]!); // far first
+
+    const picked = new Set<number>();
+    for (const set of game.extracted) for (const i of set) picked.add(i);
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    for (const i of order) {
+      const d01 = depth[i]!;
+      const e = emph[i]!;
+      const isPick = picked.has(i);
+      let intensity = (1 - 0.55 * d01) * (e < 0 ? 1 + e : 1); // depth shade + noise suppression
+      if (e > 0) intensity += e * 0.95;
+      if (isPick) intensity += 0.4;
+      if (intensity < 0.05) continue;
+      let R = (ORB_NEAR + (ORB_FAR - ORB_NEAR) * d01) * (1 + 0.28 * Math.max(0, e) + (isPick ? 0.2 : 0));
+      R = Math.max(2.2, R);
+      let tint = isPick ? TINT_PICK : TINT_BASE;
+      if (tripFlash[i]! > 0) tint = TINT_TRIP;
+      else if (flash > 0 && e > 0) {
+        const f = Math.min(1, e) * flash;
+        tint = [tint[0] + (0.95 - tint[0]) * f, tint[1] + (0.82 - tint[1]) * f, tint[2] + (0.42 - tint[2]) * f];
       }
+      drawOrb(ctx, orbModeFor(i), scr[i * 2]!, scr[i * 2 + 1]!, R, nowSec * ORB_SPEED + i * 0.7, tint, intensity);
+    }
+
+    // soft-snap (hands-off), same as #1
+    if (!engaged && nearestAngle < thetaLock && !game.over) engaged = true;
+    else if (engaged && nearestAngle > thetaLock * 1.6) engaged = false;
+    if (engaged && bestLock >= 0) {
+      const dist = cp.distanceTo(target);
+      tmpDir.set(viewDir[0], viewDir[1], viewDir[2]);
+      axisV3.set(...lockViews[bestLock]!.axis);
+      qTo.setFromUnitVectors(tmpDir, axisV3);
+      qStep.copy(qId).slerp(qTo, 0.16);
+      tmpDir.applyQuaternion(qStep);
+      camera.position.copy(target).addScaledVector(tmpDir, dist);
+    }
+    if (engaged && !prevEngaged) flashStart = nowSec;
+    prevEngaged = engaged;
+
+    // reticle
+    if (engaged && !game.over && hoverIdx >= 0) {
+      const rect = canvas.getBoundingClientRect();
+      reticle.style.left = `${rect.left + scr[hoverIdx * 2]!}px`;
+      reticle.style.top = `${rect.top + scr[hoverIdx * 2 + 1]!}px`;
+      reticle.style.borderColor = board.points[hoverIdx]?.pop === 'TRIP' ? '#d0605a' : '#6fe0b8';
+      reticle.style.opacity = '1';
+    } else if (engaged && !game.over && mouseX >= 0) {
+      reticle.style.left = `${mouseX}px`;
+      reticle.style.top = `${mouseY}px`;
+      reticle.style.borderColor = '#44444c';
       reticle.style.opacity = '1';
     } else {
       reticle.style.opacity = '0';
     }
 
-    // picked (extracted) points
-    picked.fill(0);
-    for (const set of game.extracted) for (const i of set) picked[i] = 1;
-
-    cloud!.updatePositions(live);
-    cloud!.updateEmphasis(emph);
-    cloud!.updatePicked(picked);
-    cloud!.sync(camera, controls.target, renderer.getPixelRatio());
-
-    // soft-snap (hands-off)
-    if (!engaged && nearestAngle < thetaLock && !game.over) engaged = true;
-    else if (engaged && nearestAngle > thetaLock * 1.6) engaged = false;
-    if (engaged && bestLock >= 0) {
-      const dist = camera.position.distanceTo(target);
-      tmpDir.set(viewDir[0], viewDir[1], viewDir[2]);
-      qTo.setFromUnitVectors(tmpDir, lockViews[bestLock]!.axisV3);
-      qStep.copy(qId).slerp(qTo, 0.16);
-      tmpDir.applyQuaternion(qStep);
-      camera.position.copy(target).addScaledVector(tmpDir, dist);
-    }
-
-    // found-shine
-    if (engaged && !prevEngaged) flashStart = nowSec;
-    prevEngaged = engaged;
-    cloud!.setFlash(Math.max(0, 1 - (nowSec - flashStart) / FLASH_DUR));
-
-    // ── HUD ────────────────────────────────────────────────────────────────
+    // ── HUD ─────────────────────────────────────────────────────────────────
     if (initial.skill >= 1) {
       const lit = Math.round(best * ARC_DOTS);
-      for (let i = 0; i < ARC_DOTS; i++)
-        arcDots[i]!.setAttribute('fill', i < lit ? (engaged ? '#e8c06a' : '#5dcaa5') : '#2a2a34');
+      for (let i = 0; i < ARC_DOTS; i++) arcDots[i]!.setAttribute('fill', i < lit ? (engaged ? '#e8c06a' : '#5dcaa5') : '#2a2a34');
       if (engaged && bestLock >= 0) {
         glyphLabel.textContent = `⟡ ${lockViews[bestLock]!.glyph.name}`;
         glyphLabel.style.opacity = '1';
       } else glyphLabel.style.opacity = '0';
     }
-
     const frac = Math.max(0, game.timeLeft / game.tRun);
-    timerRing.setAttribute('r', String(3 + 18 * frac)); // thin ring shrinks
+    timerRing.setAttribute('r', String(3 + 18 * frac));
     timerRing.setAttribute('stroke', timerColor(frac));
     pips.forEach((p, i) => (p.style.color = i < game.trips ? '#d0605a' : '#3a3a44'));
-
     if (engaged && bestLock >= 0 && !game.over) {
       progress.textContent = `EXTRACT ${game.extractedCount(bestLock)} / ${board.locks[bestLock]!.signalCount}`;
       progress.style.opacity = '1';
     } else progress.style.opacity = '0';
-
     if (game.over && overlay.style.display === 'none') showOverlay();
 
-    renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
   }
   loop();
@@ -526,7 +495,8 @@ export function mountConstellation(
       const lv = lockViews[index];
       if (!lv) return;
       const dist = camera.position.distanceTo(target);
-      camera.position.copy(target).addScaledVector(lv.axisV3, dist);
+      axisV3.set(...lv.axis);
+      camera.position.copy(target).addScaledVector(axisV3, dist);
       controls.update();
     },
     debugExtract(l, count) {
@@ -539,8 +509,7 @@ export function mountConstellation(
       }
     },
     debugSolve() {
-      for (let l = 0; l < lockViews.length; l++)
-        for (const i of lockViews[l]!.signalIdx) game.select(i, l);
+      for (let l = 0; l < lockViews.length; l++) for (const i of lockViews[l]!.signalIdx) game.select(i, l);
     },
     debugTime(frac) {
       game.phase = 'RUN';
@@ -550,9 +519,7 @@ export function mountConstellation(
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       controls.dispose();
-      cloud?.dispose();
       [svg, timerSvg, strikes, progress, hint, reticle, vignette, overlay].forEach((n) => n.remove());
-      renderer.dispose();
     },
   };
 }
