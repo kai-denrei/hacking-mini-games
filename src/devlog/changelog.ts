@@ -37,7 +37,7 @@ export const MILESTONES: Milestone[] = [
       'Wires are thin dotted tubes (a cut-and-straightened torus: lit round core + dim walls).',
       'Every terminal is legible: a fork is two tubes, and each tube carries a visible element — an INVERT ring, a REPEAT node, or a DEAD stub that never reaches a cell.',
       'Hover a terminal to preview its reach (its tubes light up and the cells it reaches are ringed by element colour). Reading both circuits to pick the better side is the skill.',
-      'Light still flows through the tubes; mechanics reuse TRANSFER.',
+      'Terminals are the searching primitives from SHAPES (octahedra left, cubes right); a very slow ambient band drifts along every tube so the circuit is always gently alive. Mechanics reuse TRANSFER.',
     ],
   },
   {

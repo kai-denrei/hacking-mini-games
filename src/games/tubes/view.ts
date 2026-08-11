@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { DotField } from '../../render/dotfield.ts';
+import { searching, type Shape, type PDot } from '../../render/primitives.ts';
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
 import { layerOf, WIN, type Board, type OutcomeKind } from '../transfer/model.ts';
@@ -173,8 +174,11 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
   });
 
   const TUBE_R = 0.012;
-  // a thin dotted tube: bright round core + dim walls, lit as light passes
-  function drawTube(dots: TraceDot[], dim: RGB, lightAt: (u: number) => { b: number; col: RGB }, endU: number): void {
+  // a thin dotted tube: bright round core + dim walls. A very slow ambient band
+  // drifts along it at rest (so the circuit is always gently alive); a fired
+  // pulse's light overrides it.
+  function drawTube(dots: TraceDot[], dim: RGB, lightAt: (u: number) => { b: number; col: RGB }, endU: number, nowSec: number, phase: number): void {
+    const wall: RGB = [dim[0]! * 0.7, dim[1]! * 0.7, dim[2]! * 0.7];
     for (let i = 0; i < dots.length; i++) {
       const d = dots[i]!;
       if (d.u > endU) break;
@@ -188,16 +192,23 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
       const nx = -dy;
       const ny = dx;
       const { b, col } = lightAt(d.u);
-      // core
+      const amb = 0.28 * Math.max(0, Math.sin((d.u * 2.2 - nowSec * 0.09 + phase) * Math.PI * 2)); // slow drift
       const coreCol = mix(dim, col, Math.min(1, b));
-      field.dot(d.x, d.y, coreCol[0] * (0.65 + 0.8 * b), coreCol[1] * (0.65 + 0.8 * b), coreCol[2] * (0.65 + 0.8 * b), 2.4 + b * 3.6, 0.95);
-      // walls
+      const cb = 0.5 + amb + 0.85 * b;
+      field.dot(d.x, d.y, coreCol[0] * cb, coreCol[1] * cb, coreCol[2] * cb, 2.4 + b * 3.6, 0.95);
       for (const off of [1, -1] as const) {
-        const wc = mix([dim[0]! * 0.7, dim[1]! * 0.7, dim[2]! * 0.7], col, Math.min(1, b * 0.8));
-        field.dot(d.x + nx * off * TUBE_R, d.y + ny * off * TUBE_R, wc[0] * (0.4 + 0.7 * b), wc[1] * (0.4 + 0.7 * b), wc[2] * (0.4 + 0.7 * b), 1.7 + b * 2.2, 0.85);
+        const wc = mix(wall, col, Math.min(1, b * 0.8));
+        const wb = 0.32 + amb * 0.7 + 0.6 * b;
+        field.dot(d.x + nx * off * TUBE_R, d.y + ny * off * TUBE_R, wc[0] * wb, wc[1] * wb, wc[2] * wb, 1.7 + b * 2.2, 0.85);
       }
     }
   }
+  const drawPrim = (dots: PDot[], ax: number, ay: number, s: number, col: RGB, glow: number): void => {
+    for (const d of dots) {
+      const b = (0.3 + 0.7 * d.depth + d.scan * 0.7) * glow;
+      field.dot(ax + d.x * s, ay + d.y * s, col[0]! * b, col[1]! * b, col[2]! * b, 1.4 + 2.2 * d.depth + d.scan * 2.6, 0.95);
+    }
+  };
   const at = (dots: TraceDot[], u: number): TraceDot => {
     let bi = 0;
     let bd = 9;
@@ -237,6 +248,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
   let raf = 0;
   function loop(): void {
     const now = performance.now();
+    const nowSec = now / 1000;
     const dt = Math.min(0.05, (now - lastT) / 1000);
     lastT = now;
     game.tick(dt);
@@ -279,6 +291,8 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
           return { b, col };
         },
         endU,
+        nowSec,
+        r.term * 0.6 + (r.side === 'left' ? 0 : 1.7),
       );
       // element glyph on the tube
       const gb = isPrev ? 1 : 0.7;
@@ -319,17 +333,16 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { difficulty: Dif
       if (pk) ring(x, y, 0.058, kindColor(pk), 3, 0.9);
     }
 
-    // terminals (a lit node; hovered = brighter)
+    // terminals — searching primitives (octahedra left, cubes right)
     for (const side of ['left', 'right'] as Side[]) {
+      const shape: Shape = side === 'left' ? 'octa' : 'cube';
       const role = game.playerSide ? (side === game.playerSide ? 'P' : 'E') : 'N';
       const col = role === 'P' ? C.p : role === 'E' ? C.e : C.cellN;
       for (let i = 0; i < 8; i++) {
         const [x, y] = termPos(side, i);
         const hovered = hoverSide === side && hoverTerm === i && (game.phase === 'PLAN' || side === game.playerSide);
-        const b = hovered ? 1.5 : game.phase === 'PLAN' ? 0.7 + 0.35 * Math.sin(now / 240 + i) : 1;
-        const c = hovered ? mix(col, C.white, 0.5) : col;
-        field.dot(x, y, c[0] * b, c[1] * b, c[2] * b, hovered ? 8 : 6);
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) field.dot(x + dx * 0.028, y + dy * 0.028, c[0] * b * 0.7, c[1] * b * 0.7, c[2] * b * 0.7, 4);
+        const glow = hovered ? 1.6 : game.phase === 'PLAN' ? 0.7 + 0.35 * Math.sin(now / 240 + i) : 1;
+        drawPrim(searching(shape, nowSec + i * 0.7), x, y, 0.05, hovered ? mix(col, C.white, 0.4) : col, glow);
       }
     }
 
