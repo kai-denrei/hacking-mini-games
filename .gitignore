@@ -1,0 +1,13 @@
+# dependencies / build output
+node_modules/
+dist/
+
+# deban project memory — local working memory, not a published artifact
+.deban/
+
+# cache-bust token (regenerated each build)
+.cb-token
+
+# OS / editor cruft
+.DS_Store
+*.log
