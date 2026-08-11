@@ -48,11 +48,21 @@ export interface Mounted {
   debugExtract(l: number, count: number): void;
   /** test/debug: extract everything → WON. */
   debugSolve(): void;
+  /** test/debug: force the timer to a fraction of T_run (and enter RUN). */
+  debugTime(frac: number): void;
   dispose(): void;
 }
 
 const ARC_DOTS = 30;
-const TIMER_DOTS = 32;
+
+const TEAL = [93, 202, 165];
+const AMBER = [224, 176, 112];
+const RED = [208, 96, 90];
+const mix3 = (a: number[], b: number[], t: number): string =>
+  `rgb(${Math.round(a[0]! + (b[0]! - a[0]!) * t)},${Math.round(a[1]! + (b[1]! - a[1]!) * t)},${Math.round(a[2]! + (b[2]! - a[2]!) * t)})`;
+// time colour: teal (full) → amber (half) → red (empty)
+const timerColor = (f: number): string =>
+  f > 0.5 ? mix3(TEAL, AMBER, (1 - f) / 0.5) : mix3(AMBER, RED, Math.max(0, (0.5 - f) / 0.5));
 
 export function mountConstellation(
   canvas: HTMLCanvasElement,
@@ -77,7 +87,7 @@ export function mountConstellation(
   controls.target.copy(target);
 
   const raycaster = new THREE.Raycaster();
-  raycaster.params.Points!.threshold = 0.055;
+  raycaster.params.Points!.threshold = 0.1; // generous; magnetism below picks the right target
 
   // ── overlay DOM ─────────────────────────────────────────────────────────
   const NS = 'http://www.w3.org/2000/svg';
@@ -114,21 +124,21 @@ export function mountConstellation(
   svg.appendChild(glyphLabel);
   if (initial.skill >= 1) document.body.appendChild(svg);
 
-  // timer (top center, depleting dot row)
+  // timer (top center) — a disc that shrinks and shifts colour as time runs down
   const timerSvg = document.createElementNS(NS, 'svg');
-  timerSvg.setAttribute('viewBox', `0 0 ${TIMER_DOTS * 7} 12`);
+  timerSvg.setAttribute('viewBox', '0 0 48 48');
   timerSvg.style.cssText =
-    'position:fixed;left:50%;top:12px;transform:translateX(-50%);width:224px;height:12px;pointer-events:none';
-  const timerDots: SVGCircleElement[] = [];
-  for (let i = 0; i < TIMER_DOTS; i++) {
-    const c = document.createElementNS(NS, 'circle');
-    c.setAttribute('cx', String(i * 7 + 3.5));
-    c.setAttribute('cy', '6');
-    c.setAttribute('r', '2.4');
-    c.setAttribute('fill', '#2a2a34');
-    timerSvg.appendChild(c);
-    timerDots.push(c);
-  }
+    'position:fixed;left:50%;top:10px;transform:translateX(-50%);width:46px;height:46px;pointer-events:none';
+  const timerRing = document.createElementNS(NS, 'circle');
+  for (const [k, v] of [['cx', '24'], ['cy', '24'], ['r', '21'], ['fill', 'none'], ['stroke', '#20202a'], ['stroke-width', '1']] as const)
+    timerRing.setAttribute(k, v);
+  const timerDisc = document.createElementNS(NS, 'circle');
+  timerDisc.setAttribute('cx', '24');
+  timerDisc.setAttribute('cy', '24');
+  timerDisc.setAttribute('r', '21');
+  timerDisc.setAttribute('fill', timerColor(1));
+  timerSvg.appendChild(timerRing);
+  timerSvg.appendChild(timerDisc);
   document.body.appendChild(timerSvg);
 
   // strikes (top right)
@@ -170,6 +180,7 @@ export function mountConstellation(
   let emph!: Float32Array;
   let picked!: Float32Array;
   let isSignal!: Uint8Array;
+  let popT!: Float32Array; // timestamp (s) of a point's extract-pop, 0 = none
   let cloud: HalftoneCloud | null = null;
   let lockViews: LockView[] = [];
   let thetaLock = 5;
@@ -195,6 +206,7 @@ export function mountConstellation(
     emph = new Float32Array(n);
     picked = new Float32Array(n);
     isSignal = new Uint8Array(n);
+    popT = new Float32Array(n);
 
     lockViews = board.locks.map((lock) => {
       const signalIdx: number[] = [];
@@ -294,6 +306,15 @@ export function mountConstellation(
     const hits = raycaster.intersectObject(cloud.points, false);
     if (!hits.length) return -1;
     hits.sort((a, b) => (a.distanceToRay ?? 9) - (b.distanceToRay ?? 9));
+    // magnet: prefer the nearest un-extracted signal of the focus lock, so aiming
+    // near the glyph reliably grabs a glyph point. A TRIP is only picked when no
+    // such signal is near the cursor (you have to aim at the hazard to hit it).
+    for (const h of hits) {
+      const i = h.index;
+      if (i == null) continue;
+      const p = board.points[i];
+      if (p && p.pop === 'SIGNAL' && p.lock === bestLock && !game.extracted[bestLock]?.has(i)) return i;
+    }
     return hits[0]!.index ?? -1;
   }
   let bestLock = -1;
@@ -311,7 +332,9 @@ export function mountConstellation(
     const idx = pickIndex(e.clientX, e.clientY);
     if (idx < 0) return;
     const outcome = game.select(idx, bestLock);
-    if (outcome === 'trip') {
+    if (outcome === 'extract' || outcome === 'lockDone' || outcome === 'won') {
+      popT[idx] = performance.now() / 1000;
+    } else if (outcome === 'trip') {
       vignette.style.opacity = '0.9';
       setTimeout(() => (vignette.style.opacity = '0'), 60);
     }
@@ -322,6 +345,7 @@ export function mountConstellation(
   const qStep = new THREE.Quaternion();
   const qTo = new THREE.Quaternion();
   const qId = new THREE.Quaternion();
+  const rProj = new THREE.Vector3();
 
   function showOverlay(): void {
     const r = game.result();
@@ -352,6 +376,7 @@ export function mountConstellation(
   let raf = 0;
   function loop(): void {
     const now = performance.now();
+    const nowSec = now / 1000;
     const dt = Math.min(0.05, (now - lastT) / 1000);
     lastT = now;
 
@@ -411,14 +436,32 @@ export function mountConstellation(
       }
     }
 
-    // hover highlight + reticle
-    let hoverIdx = -1;
+    // extract pop — brief bloom on freshly extracted points
+    for (let i = 0; i < popT.length; i++) {
+      const t0 = popT[i]!;
+      if (t0 > 0) {
+        const e = 1 - (nowSec - t0) / 0.3;
+        if (e > 0) emph[i] = emph[i]! + e * 0.9;
+        else popT[i] = 0;
+      }
+    }
+
+    // hover highlight + reticle (snaps onto the target point; red over a hazard)
     if (engaged && !game.over && mouseX >= 0) {
-      hoverIdx = pickIndex(mouseX, mouseY);
-      if (hoverIdx >= 0) emph[hoverIdx] = emph[hoverIdx]! + 0.5;
+      const hoverIdx = pickIndex(mouseX, mouseY);
+      const rect = canvas.getBoundingClientRect();
+      if (hoverIdx >= 0) {
+        emph[hoverIdx] = emph[hoverIdx]! + 0.5;
+        rProj.set(live[hoverIdx * 3]!, live[hoverIdx * 3 + 1]!, live[hoverIdx * 3 + 2]!).project(camera);
+        reticle.style.left = `${rect.left + (rProj.x * 0.5 + 0.5) * rect.width}px`;
+        reticle.style.top = `${rect.top + (-rProj.y * 0.5 + 0.5) * rect.height}px`;
+        reticle.style.borderColor = board.points[hoverIdx]?.pop === 'TRIP' ? '#d0605a' : '#6fe0b8';
+      } else {
+        reticle.style.left = `${mouseX}px`;
+        reticle.style.top = `${mouseY}px`;
+        reticle.style.borderColor = '#44444c';
+      }
       reticle.style.opacity = '1';
-      reticle.style.left = `${mouseX}px`;
-      reticle.style.top = `${mouseY}px`;
     } else {
       reticle.style.opacity = '0';
     }
@@ -445,7 +488,6 @@ export function mountConstellation(
     }
 
     // found-shine
-    const nowSec = now / 1000;
     if (engaged && !prevEngaged) flashStart = nowSec;
     prevEngaged = engaged;
     cloud!.setFlash(Math.max(0, 1 - (nowSec - flashStart) / FLASH_DUR));
@@ -461,10 +503,9 @@ export function mountConstellation(
       } else glyphLabel.style.opacity = '0';
     }
 
-    const frac = game.timeLeft / game.tRun;
-    const litT = Math.ceil(frac * TIMER_DOTS);
-    const tcol = game.phase === 'RUN' ? (frac < 0.2 ? '#d0605a' : '#5dcaa5') : '#3a3a44';
-    for (let i = 0; i < TIMER_DOTS; i++) timerDots[i]!.setAttribute('fill', i < litT ? tcol : '#20202a');
+    const frac = Math.max(0, game.timeLeft / game.tRun);
+    timerDisc.setAttribute('r', String(2 + 19 * frac)); // shrinks toward a dot
+    timerDisc.setAttribute('fill', timerColor(frac));
     pips.forEach((p, i) => (p.style.color = i < game.trips ? '#d0605a' : '#3a3a44'));
 
     if (engaged && bestLock >= 0 && !game.over) {
@@ -502,6 +543,10 @@ export function mountConstellation(
     debugSolve() {
       for (let l = 0; l < lockViews.length; l++)
         for (const i of lockViews[l]!.signalIdx) game.select(i, l);
+    },
+    debugTime(frac) {
+      game.phase = 'RUN';
+      game.timeLeft = Math.max(0, frac) * game.tRun;
     },
     dispose() {
       cancelAnimationFrame(raf);
