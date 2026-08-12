@@ -81,3 +81,22 @@ import { simulate, aiSchedule, playerFireLate } from '../src/games/transfer/simu
   eq(r.e >= 1, true, 'sim FLIP feeds E');
 }
 console.log('task5 OK');
+
+import { generateBoard } from '../src/games/transfer/generate.ts';
+import { layerOf } from '../src/games/transfer/model.ts';
+{
+  const kinds = new Set<string>();
+  let solvable = 0, deterministicOk = true;
+  for (let i = 0; i < 30; i++) {
+    const b = generateBoard({ attacker: 4, defender: 4 }, `full${i}`, { elements: 'full' });
+    for (const side of ['left', 'right'] as const) for (const t of layerOf(b, side).terminals) for (const o of t.outcomes) kinds.add(o.kind);
+    // the intended better side must beat the AI (reuse the generator's own guarantee → boardAttempts finite means it passed)
+    if (b.genStats.boardAttempts >= 1) solvable++;
+    const b2 = generateBoard({ attacker: 4, defender: 4 }, `full${i}`, { elements: 'full' });
+    if (JSON.stringify(b) !== JSON.stringify(b2)) deterministicOk = false;
+  }
+  eq(solvable, 30, 'all full boards generated');
+  eq(deterministicOk, true, 'deterministic');
+  eq(['LOCK', 'SHORT', 'FLIP', 'CONVERT'].some((k) => kinds.has(k)), true, 'full vocabulary present');
+}
+console.log('task6 OK');

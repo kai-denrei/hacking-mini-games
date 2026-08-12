@@ -39,7 +39,12 @@ function shuffle<T>(rng: RNG, arr: readonly T[]): T[] {
 }
 const delay = (rng: RNG): number => randRange(rng, 0.6, 1.4);
 
-function makeLayer(rng: RNG, params: TierParams): Layer {
+interface MakeLayerResult {
+  layer: Layer;
+  joinerPair?: [number, number];
+}
+
+function makeLayer(rng: RNG, params: TierParams, elements: 'legacy' | 'full' = 'legacy'): MakeLayerResult {
   const order = shuffle(rng, Array.from({ length: 12 }, (_, i) => i));
   const terminals: Terminal[] = [];
   for (let i = 0; i < 8; i++) {
@@ -77,7 +82,66 @@ function makeLayer(rng: RNG, params: TierParams): Layer {
       trapsLeft--;
     }
   }
-  return { terminals };
+
+  let joinerPair: [number, number] | undefined;
+
+  if (elements === 'full') {
+    // --- Full-vocabulary decoration ---
+    // Invariant: must keep ≥5 clean (CLAIM/LOCK/REPEAT only) terminals.
+    // We start with terminals 0..4 as clean (5 clean minimum), decorate 5,6,7.
+
+    // 1. LOCK: promote the first CLAIM outcome of terminal 0 (the strongest) to LOCK
+    //    This is high-value (+2 vs +1) and stays "clean" (LOCK is clean-ish — it's the prize).
+    const lockTarget = terminals[0]!.outcomes.find((o) => o.kind === 'CLAIM');
+    if (lockTarget) lockTarget.kind = 'LOCK';
+
+    // 2. FLIP: replace one DEAD/INVERT trap outcome on terminal 7 with FLIP (deceptive — feeds enemy)
+    //    Only do this if terminal 7 already has a trap outcome to convert (no new clean→trap demotions)
+    const t7 = terminals[7]!;
+    const trapOutcome7 = t7.outcomes.find((o) => o.kind === 'DEAD' || o.kind === 'INVERT');
+    if (trapOutcome7) trapOutcome7.kind = 'FLIP';
+
+    // 3. SHORT: replace one DEAD trap outcome on terminal 6 with SHORT (deceptive dead)
+    const t6 = terminals[6]!;
+    const deadOutcome6 = t6.outcomes.find((o) => o.kind === 'DEAD');
+    if (deadOutcome6) deadOutcome6.kind = 'SHORT';
+
+    // 4. CONVERT: add a CONVERT outcome on terminal 3 (mid-range, still clean-ish)
+    //    Only if it won't drop clean count below 5. Terminal 3 currently has only CLAIM,
+    //    so adding CONVERT makes it a mixed terminal (not purely clean). We only add it
+    //    if we still have ≥5 clean terminals after (terminals 0,1,2,4 = 4 clean + terminal 3 goes mixed).
+    //    Check: after LOCK promotion, terminals 0,1,2,3,4 are clean (0 has LOCK which is fine).
+    //    Adding CONVERT to terminal 3 makes it mixed → 4 clean. That's below 5. Skip terminal 3.
+    //    Use terminal 4 instead — add as second outcome: still 5 clean if terminal 4 stays otherwise clean.
+    //    Actually: to maintain ≥5 clean, add CONVERT as an additional outcome on terminal 2 only.
+    //    Terminal 2 with CLAIM+CONVERT is "mixed" → drops clean count. Instead add to terminal 5
+    //    which already has DEAD/INVERT — it's already dirty. Adding CONVERT makes it richer but still dirty.
+    const t5 = terminals[5]!;
+    const convertCell = order[(5 + 7) % 12]!; // a mid cell
+    if (!t5.outcomes.some((o) => o.cell === convertCell)) {
+      t5.outcomes.push({ cell: convertCell, delay: delay(rng), kind: 'CONVERT' });
+    } else {
+      // fallback: use a different cell offset
+      const altCell = order[(5 + 10) % 12]!;
+      if (!t5.outcomes.some((o) => o.cell === altCell)) {
+        t5.outcomes.push({ cell: altCell, delay: delay(rng), kind: 'CONVERT' });
+      }
+    }
+
+    // 5. JOINER: route terminal 1's second CLAIM outcome to the same cell as terminal 2's CLAIM
+    //    Record this pair so the renderer can show the ⋈ marker.
+    //    Terminal 1 currently has outcomes: [CLAIM→order[1], CLAIM→order[9]]
+    //    Terminal 2 has: [CLAIM→order[2], possibly CLAIM→order[7] from split]
+    //    Point terminal 1's second CLAIM at terminal 2's primary cell.
+    const term1SecondClaim = terminals[1]!.outcomes.find((o, idx) => idx > 0 && o.kind === 'CLAIM');
+    const term2PrimaryClaim = terminals[2]!.outcomes.find((o) => o.kind === 'CLAIM');
+    if (term1SecondClaim && term2PrimaryClaim) {
+      term1SecondClaim.cell = term2PrimaryClaim.cell;
+      joinerPair = [1, 2];
+    }
+  }
+
+  return { layer: { terminals }, joinerPair };
 }
 
 const anyClaimTerminal = (l: Layer): Terminal | undefined =>
@@ -104,16 +168,23 @@ function balance(strong: Layer, weak: Layer): void {
   }
 }
 
-function tryGenerate(spec: MatchSpec, seed: string): Board | null {
+export interface GenerateOpts {
+  elements?: 'legacy' | 'full';
+}
+
+function tryGenerate(spec: MatchSpec, seed: string, opts: GenerateOpts = {}): Board | null {
   const params = classParams(spec);
+  const elements = opts.elements ?? 'legacy';
   const rng = makeRng(`${seed}:transfer:${spec.attacker}:${spec.defender}`);
   // Above naive AI the board must also defeat a "fire everything early" run, so
   // reading the routes (not just spamming) is the skill.
   const requireReadSkill = spec.defender >= 3;
 
   for (let attempt = 1; attempt <= GEN.maxBoardAttempts; attempt++) {
-    const a = makeLayer(rng, params);
-    const b = makeLayer(rng, params);
+    const resA = makeLayer(rng, params, elements);
+    const resB = makeLayer(rng, params, elements);
+    const a = resA.layer;
+    const b = resB.layer;
     if (reachSet(a).size < GEN.reachMin || reachSet(b).size < GEN.reachMin) continue;
     if (layerQuality(a) < GEN.valueMin || layerQuality(b) < GEN.valueMin) continue;
 
@@ -137,6 +208,12 @@ function tryGenerate(spec: MatchSpec, seed: string): Board | null {
 
     const left = a;
     const right = b;
+
+    // Collect joiner pairs from layers (only for full-vocabulary boards)
+    const joiners: [number, number][] = [];
+    if (resA.joinerPair) joiners.push(resA.joinerPair);
+    if (resB.joinerPair) joiners.push(resB.joinerPair);
+
     return {
       seed,
       spec,
@@ -145,6 +222,7 @@ function tryGenerate(spec: MatchSpec, seed: string): Board | null {
       right,
       better: strong === left ? 'left' : 'right',
       genStats: { boardAttempts: attempt, qLeft: layerQuality(left), qRight: layerQuality(right) },
+      ...(joiners.length > 0 ? { joiners } : {}),
     };
   }
   return null;
@@ -153,9 +231,9 @@ function tryGenerate(spec: MatchSpec, seed: string): Board | null {
 // Generate a board for the matchup, easing the defender's class down if the
 // requested one has no solvable board (generosity is an invariant — never crash
 // the player into an impossible rung; see study §"Concrete amendments").
-export function generateBoard(spec: MatchSpec, seed: string): Board {
+export function generateBoard(spec: MatchSpec, seed: string, opts: GenerateOpts = {}): Board {
   for (let d = spec.defender; d >= 1; d--) {
-    const board = tryGenerate({ attacker: spec.attacker, defender: d }, seed);
+    const board = tryGenerate({ attacker: spec.attacker, defender: d }, seed, opts);
     if (board) return board;
   }
   throw new Error(`transfer generateBoard: no valid board even at defender 1 (seed=${seed}, attacker=${spec.attacker})`);

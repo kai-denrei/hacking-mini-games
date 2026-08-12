@@ -58,6 +58,8 @@ export interface Board {
   /** which side the generator intends the player to pick (higher quality) */
   better: 'left' | 'right';
   genStats: { boardAttempts: number; qLeft: number; qRight: number };
+  /** pairs of terminal ids (same layer) whose CLAIM routes land on the same cell — JOINER marker */
+  joiners?: [number, number][];
 }
 
 export const CELLS = 12;
