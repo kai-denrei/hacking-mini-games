@@ -109,6 +109,21 @@ same board into PLAN.
 - HUD: timer ring, prompt, tally with the Complete/Deadlock/Rejected counts, the
   legend, ladder readout. Overlay shows Complete / Deadlock (replay) / Rejected.
 
+## Rules glossary (visual)
+
+The Rules tab (`src/devlog/rules.ts` + `panel.ts`) is text-only today. Add a
+**visual glossary** for the new game: one row per element (autopulser, splitter,
+lock, joiner, dead-end, short-circuit, filled ■ transformer, half ▤ transformer)
+showing its **actual dot glyph** rendered in a small canvas beside its name and
+one-line meaning (good/bad tag).
+
+- Extend `GameRules` with an optional `glossary: { key, name, meaning, tag }[]`.
+- Share the glyph draw functions between the #8 renderer and the glossary (one
+  small `drawElementGlyph(ctx, kind, size)` used by both — single source of
+  truth, so the legend can't drift from the game). Reduced-motion → static frame.
+- The glossary renders only for the new game's rules entry; other entries are
+  unchanged text.
+
 ## Testing
 
 - **Headless sim** (`node --experimental-strip-types`): unit-check `resolve()`
