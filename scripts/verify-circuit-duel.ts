@@ -58,3 +58,16 @@ eq(fireAndSettle('SHORT', 'P', 'NEUTRAL'), 'NEUTRAL', 'short no-op');
   (g as unknown as { spawn: (s: string, o: string, t: number) => void }).spawn('right', 'E', 0); // an E pulse (its outcome kind irrelevant — even CLAIM)
 }
 console.log('task2 OK');
+
+function outcomeFor(pCount: number): string {
+  const g = new TransferGame(stubBoard('CLAIM'));
+  g.chooseSide('left');
+  for (let i = 0; i < 12; i++) g.owners[i] = i < pCount ? 'P' : 'E';
+  (g as unknown as { finish: () => void }).finish();
+  return g.phase;
+}
+eq(outcomeFor(7), 'WON', '7→WON');
+eq(outcomeFor(8), 'WON', '8→WON');
+eq(outcomeFor(6), 'DEADLOCK', '6→DEADLOCK');
+eq(outcomeFor(5), 'LOST', '5→LOST');
+console.log('task3 OK');

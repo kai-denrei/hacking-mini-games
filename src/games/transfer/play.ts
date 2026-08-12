@@ -1,14 +1,14 @@
 import { makeRng, type RNG } from '../../engine/rng.ts';
 import { aiSchedule, type Fire } from './simulate.ts';
-import { CELLS, layerOf, type Board, type Owner, type OutcomeKind } from './model.ts';
+import { CELLS, WIN, DEADLOCK_AT, layerOf, type Board, type Owner, type OutcomeKind } from './model.ts';
 import type { Side } from './layout.ts';
 
 // Live, real-time TRANSFER match (THREE-free). PLAN (pick a side) → RUN (fire
-// pulses that travel and resolve, later-claim-wins) → WON/LOST. The batch
+// pulses that travel and resolve, later-claim-wins) → WON/LOST/DEADLOCK. The batch
 // simulate.ts is for the generator's solver; this is the playable version with
 // in-flight pulses the renderer can draw.
 
-export type Phase = 'PLAN' | 'RUN' | 'WON' | 'LOST';
+export type Phase = 'PLAN' | 'RUN' | 'WON' | 'LOST' | 'DEADLOCK';
 
 export interface LivePulse {
   side: Side; // physical layer the pulse travels on
@@ -159,10 +159,9 @@ export class TransferGame {
 
   private finish(): void {
     let p = 0;
-    let e = 0;
-    for (const o of this.owners) o === 'P' ? p++ : o === 'E' ? e++ : 0;
-    this.result = { p, e };
-    this.phase = p > e ? 'WON' : 'LOST'; // majority over the host; a tie (rematch) is a TODO
+    for (const o of this.owners) if (o === 'P') p++;
+    this.result = { p, e: this.owners.filter((o) => o === 'E').length };
+    this.phase = p >= WIN ? 'WON' : p === DEADLOCK_AT ? 'DEADLOCK' : 'LOST'; // 1985 manual: 7 / 6 / ≤5
   }
 
   counts(): { p: number; e: number; n: number } {
