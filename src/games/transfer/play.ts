@@ -41,6 +41,8 @@ export class TransferGame {
   phase: Phase = 'PLAN';
   result: { p: number; e: number } | null = null;
 
+  locked = new Set<number>();
+
   private guns: Gun[] = [];
   private eSchedule: Fire[] = [];
   private eFired: boolean[] = [];
@@ -94,13 +96,20 @@ export class TransferGame {
   }
 
   private resolve(p: LivePulse): void {
-    if (p.kind === 'DEAD') return; // absorbed
-    if (p.kind === 'CLAIM') this.owners[p.cell] = p.owner;
-    else if (p.kind === 'INVERT') {
-      const c = this.owners[p.cell]!;
-      this.owners[p.cell] = c === 'NEUTRAL' ? p.owner : c === 'P' ? 'E' : 'P';
-    } else if (p.kind === 'REPEAT') {
-      this.owners[p.cell] = p.owner;
+    if (p.kind === 'DEAD' || p.kind === 'SHORT') return; // absorbed / short-circuited
+    if (this.locked.has(p.cell)) return; // constant-pulse cells are final
+    const self: Owner = p.owner === 'P' ? 'P' : 'E';
+    const opp: Owner = self === 'P' ? 'E' : 'P';
+    const cur = this.owners[p.cell]!;
+    if (p.kind === 'CLAIM') this.owners[p.cell] = self;
+    else if (p.kind === 'LOCK') {
+      this.owners[p.cell] = self;
+      this.locked.add(p.cell);
+    } else if (p.kind === 'FLIP') this.owners[p.cell] = opp; // filled transformer: feeds the enemy
+    else if (p.kind === 'CONVERT') this.owners[p.cell] = cur === opp ? 'NEUTRAL' : cur === 'NEUTRAL' ? self : self; // advance-only
+    else if (p.kind === 'INVERT') this.owners[p.cell] = cur === 'NEUTRAL' ? self : cur === 'P' ? 'E' : 'P'; // legacy
+    else if (p.kind === 'REPEAT') {
+      this.owners[p.cell] = self;
       this.guns.push({ cell: p.cell, period: p.repeatPeriod, nextAt: this.matchElapsed + p.repeatPeriod, owner: p.owner });
     }
     this.claimFlash[p.cell] = 0.35;
@@ -135,6 +144,7 @@ export class TransferGame {
     // repeat guns re-claim until match end
     for (const g of this.guns) {
       while (this.matchElapsed >= g.nextAt && g.nextAt <= this.board.params.tMatch) {
+        if (this.locked.has(g.cell)) break;
         this.owners[g.cell] = g.owner;
         this.claimFlash[g.cell] = 0.35;
         g.nextAt += g.period;

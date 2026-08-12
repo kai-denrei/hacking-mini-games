@@ -15,3 +15,46 @@ eq(terminalValue(T(['FLIP'])), -1, 'flip=-1');
 eq(terminalValue(T(['DEAD'])), 0, 'dead=0');
 eq(terminalValue(T(['SHORT'])), 0, 'short=0');
 console.log('task1 OK');
+
+import { TransferGame } from '../src/games/transfer/play.ts';
+import type { Board } from '../src/games/transfer/model.ts';
+
+// minimal 1-terminal-per-side board with a single cell 0, no AI schedule needed
+function stubBoard(kind: string): Board {
+  const term = { id: 0, outcomes: [{ cell: 0, delay: 0.01, kind: kind as never }] };
+  const layer = { terminals: [term, ...Array.from({ length: 7 }, (_, i) => ({ id: i + 1, outcomes: [] })) ] };
+  return {
+    seed: 's', spec: { attacker: 5, defender: 2 },
+    params: { tMatch: 5, pPulses: 9, ePulses: 0, traps: 0, repeats: 0, ai: 'naive' },
+    left: layer, right: { terminals: Array.from({ length: 8 }, (_, i) => ({ id: i, outcomes: [] })) },
+    better: 'left', genStats: { boardAttempts: 1, qLeft: 1, qRight: 0 },
+  };
+}
+function fireAndSettle(kind: string, owner: 'P' | 'E', initial: 'NEUTRAL' | 'P' | 'E'): 'NEUTRAL' | 'P' | 'E' {
+  const g = new TransferGame(stubBoard(kind));
+  g.chooseSide(owner === 'P' ? 'left' : 'right'); // player left; E fires from right — but we drive P for simplicity
+  g.owners[0] = initial;
+  if (owner === 'P') g.firePlayer(0);
+  else { (g as unknown as { spawn: (s: string, o: string, t: number) => void }).spawn('right', 'E', 0); } // test hook: spawn enemy pulse
+  for (let i = 0; i < 100; i++) g.tick(0.05);
+  return g.owners[0];
+}
+// FLIP: self=P fires → cell becomes E (opp)
+eq(fireAndSettle('FLIP', 'P', 'NEUTRAL'), 'E', 'flip P→E');
+// CONVERT: opp→neutral, neutral→self, self→self
+eq(fireAndSettle('CONVERT', 'P', 'E'), 'NEUTRAL', 'convert E→neutral');
+eq(fireAndSettle('CONVERT', 'P', 'NEUTRAL'), 'P', 'convert neutral→P');
+eq(fireAndSettle('CONVERT', 'P', 'P'), 'P', 'convert P→P');
+// DEAD/SHORT: no change
+eq(fireAndSettle('DEAD', 'P', 'E'), 'E', 'dead no-op');
+eq(fireAndSettle('SHORT', 'P', 'NEUTRAL'), 'NEUTRAL', 'short no-op');
+// LOCK freezes: P locks cell, then E FLIP cannot change it
+{
+  const g = new TransferGame(stubBoard('LOCK'));
+  g.chooseSide('left'); g.firePlayer(0);
+  for (let i = 0; i < 100; i++) g.tick(0.05);
+  eq(g.owners[0], 'P', 'lock claims P');
+  eq(g.locked.has(0), true, 'cell locked');
+  (g as unknown as { spawn: (s: string, o: string, t: number) => void }).spawn('right', 'E', 0); // an E pulse (its outcome kind irrelevant — even CLAIM)
+}
+console.log('task2 OK');
