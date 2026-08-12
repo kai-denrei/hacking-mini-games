@@ -1,5 +1,6 @@
 import { STATUS, MILESTONES, ROADMAP, type Milestone } from './changelog.ts';
 import { RULES } from './rules.ts';
+import { elementGlyphDots, type GlyphKind } from '../render/circuitElements.ts';
 
 // A dev-log panel that opens when the cache-bust version badge (#cb-badge,
 // bottom-right) is clicked. Two tabs: the build changelog + roadmap, and the
@@ -49,11 +50,28 @@ function renderLog(): string {
     </div>`;
 }
 
+function renderGlossaryHTML(glossary: NonNullable<(typeof RULES)[number]['glossary']>): string {
+  const rows = glossary.map((el) => {
+    const tagClass = `cx-gtag cx-gtag-${el.tag}`;
+    return `
+      <div class="cx-grow">
+        <canvas class="cx-gcanvas" data-kind="${esc(el.kind)}" width="40" height="40" aria-hidden="true"></canvas>
+        <div class="cx-ginfo">
+          <span class="cx-gname">${esc(el.name)}</span>
+          <span class="cx-gmeaning">${esc(el.meaning)}</span>
+          <span class="${tagClass}">${esc(el.tag)}</span>
+        </div>
+      </div>`;
+  }).join('');
+  return `<div class="cx-lbl">Wire vocabulary</div><div class="cx-glossary">${rows}</div>`;
+}
+
 function renderRules(): string {
   const cards = RULES.map((g) => {
     const how = g.how.map((h) => `<li>${esc(h)}</li>`).join('');
     const fail = g.fail.map((f) => `<li>${esc(f)}</li>`).join('');
     const note = g.note ? `<div class="cx-gnote">${esc(g.note)}</div>` : '';
+    const glossary = g.glossary ? renderGlossaryHTML(g.glossary) : '';
     return `
       <div class="cx-game">
         <div class="cx-game-h"><span class="cx-game-n">${esc(g.name)}</span>
@@ -62,6 +80,7 @@ function renderRules(): string {
         <div class="cx-lbl">How to play</div><ul>${how}</ul>
         <div class="cx-lbl">Failure</div><ul class="cx-fail">${fail}</ul>
         ${note}
+        ${glossary}
       </div>`;
   }).join('');
   return `<div class="cx-scroll">${cards}</div>`;
@@ -81,6 +100,43 @@ function render(tab: Tab): string {
       <button class="cx-tab ${tab === 'rules' ? 'on' : ''}" data-tab="rules">Rules</button>
     </div>
     ${tab === 'log' ? renderLog() : renderRules()}`;
+}
+
+function paintGlossaryCanvases(root: HTMLElement): void {
+  const DPR = Math.min(2, devicePixelRatio || 1);
+  const CSS_SIZE = 40;
+  const PHYSICAL = CSS_SIZE * DPR;
+  const CX = CSS_SIZE / 2; // center in CSS px
+  const CY = CSS_SIZE / 2;
+  const R = 16; // glyph radius in CSS px
+
+  root.querySelectorAll<HTMLCanvasElement>('canvas.cx-gcanvas').forEach((canvas) => {
+    const kind = canvas.dataset.kind as GlyphKind | undefined;
+    if (!kind) return;
+    canvas.width = PHYSICAL;
+    canvas.height = PHYSICAL;
+    canvas.style.width = `${CSS_SIZE}px`;
+    canvas.style.height = `${CSS_SIZE}px`;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(DPR, DPR);
+
+    // Dark background
+    ctx.fillStyle = '#0a0a10';
+    ctx.fillRect(0, 0, CSS_SIZE, CSS_SIZE);
+
+    const dots = elementGlyphDots(kind, 0.7);
+    for (const d of dots) {
+      const px = CX + d.x * R;
+      const py = CY + d.y * R;
+      const pr = Math.max(0.6, d.r * R * 0.5);
+      const [r, g, b] = d.col;
+      ctx.beginPath();
+      ctx.arc(px, py, pr, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${d.a})`;
+      ctx.fill();
+    }
+  });
 }
 
 const CSS = `
@@ -129,6 +185,17 @@ const CSS = `
   #cx-panel .cx-game li{margin:2px 0;color:#a7a7b2}
   #cx-panel .cx-fail li{color:#c9a0a0}
   #cx-panel .cx-gnote{margin-top:8px;padding-top:7px;border-top:1px solid #20202a;color:#6f6f7a}
+  #cx-panel .cx-glossary{display:flex;flex-direction:column;gap:6px;margin-bottom:4px}
+  #cx-panel .cx-grow{display:flex;align-items:center;gap:10px;padding:4px 0}
+  #cx-panel .cx-gcanvas{flex:0 0 40px;height:40px;border-radius:5px;background:#0a0a10;display:block}
+  #cx-panel .cx-ginfo{display:flex;flex-direction:column;gap:2px;min-width:0}
+  #cx-panel .cx-gname{color:#e0e0e8;font-weight:700;font-size:11px}
+  #cx-panel .cx-gmeaning{color:#8a8a96;font-size:10px;line-height:1.4}
+  #cx-panel .cx-gtag{font-size:8px;text-transform:uppercase;letter-spacing:.08em;padding:1px 5px;border-radius:3px;
+    background:#20202a;color:#8a8a96;align-self:flex-start}
+  #cx-panel .cx-gtag-good{background:#1a2e20;color:#6fe0b8}
+  #cx-panel .cx-gtag-bad{background:#2e1a1a;color:#d0605a}
+  #cx-panel .cx-gtag-tool{background:#2c2414;color:#e0b070}
 `;
 
 export function mountDevLog(): void {
@@ -151,6 +218,7 @@ export function mountDevLog(): void {
         paint();
       });
     });
+    if (tab === 'rules') paintGlossaryCanvases(panel);
   };
 
   const setOpen = (open: boolean): void => {

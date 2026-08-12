@@ -2,6 +2,9 @@
 // CONSTELLATION is playable (Phase 1); the others are described from their
 // specs and marked planned.
 
+import type { GlyphKind } from '../render/circuitElements.ts';
+import { ELEMENT_INFO } from '../render/circuitElements.ts';
+
 export interface GameRules {
   name: string;
   status: 'playable' | 'phase 1' | 'planned';
@@ -9,6 +12,7 @@ export interface GameRules {
   how: string[];
   fail: string[];
   note?: string;
+  glossary?: { kind: GlyphKind; name: string; meaning: string; tag: 'good' | 'bad' | 'tool' }[];
 }
 
 export const RULES: GameRules[] = [
@@ -91,6 +95,25 @@ export const RULES: GameRules[] = [
     ],
     fail: ['Fail to hold the majority when the timer runs out.'],
     note: 'Game 5: the read-the-circuit model. Elements are derived from the (verified) outcome sim; the deeper 8×4 lane grid with JOIN is a later step.',
+  },
+  {
+    name: 'HDT',
+    status: 'playable',
+    fantasy:
+      'HanDouTai (半導体 — semiconductor). The board is dead. Flip every node from OFF to ON by reading the wire vocabulary first, then activating each element in the correct sequence. One misread shorts the circuit.',
+    how: [
+      'Press 8. The board starts fully OFF. Read each wire element before you touch anything — hover to inspect its type.',
+      'Activate elements in sequence: a CLAIM node captures its cell; a SPLIT fans one pulse into two; a LOCK freezes the cell permanently against enemy writes.',
+      'JOINER and CONVERT reshape the signal flow — plan your order so dependent nodes are ready before their inputs fire.',
+      'Win rule (1985 standard): ≥ 7 cells Complete → board accepted. Exactly 6 Complete → Deadlock, replay the board. ≤ 5 Complete → Rejected.',
+    ],
+    fail: [
+      'Critical: triggering a DEAD END, SHORT, or FLIP node wastes the pulse — the cell stays off and the element is spent.',
+      'A FLIP node gives the cell to the opponent side; FLIP-owned cells count against your total.',
+      'Deadlock (6 Complete) replays the board from scratch — no win, no loss, just another try.',
+    ],
+    note: 'Game 8: the read-the-circuit model brought to a single-player puzzle form. Wire vocabulary is shared with TUBES (game 5).',
+    glossary: ELEMENT_INFO,
   },
   {
     name: 'BREACH',
