@@ -162,6 +162,9 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
   ) as Record<GlyphKind, string>;
   legend.innerHTML = ELEMENT_INFO.map((e) => `<span style="color:${glyphColorCss[e.kind]}">${e.name.toLowerCase()}</span>`).join(' · ');
   const overlay = mk(`position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(5,6,10,.55);font:${monoF};text-align:center;pointer-events:none`);
+  // Hover tooltip: names + explains the element(s) on the wire under the cursor.
+  const tooltip = mk(`position:fixed;display:none;z-index:2147483647;max-width:236px;padding:8px 11px;border:1px solid #2a2a38;border-radius:8px;background:rgba(10,11,17,.95);font:11px/1.5 ${monoF};color:#c7c9d4;pointer-events:none;box-shadow:0 8px 26px rgba(0,0,0,.55)`);
+  const infoByKind = new Map(ELEMENT_INFO.map((e) => [e.kind, e] as const));
 
   let board!: Board;
   let game!: TransferGame;
@@ -169,6 +172,7 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
   let routeMap = new Map<string, TraceDot[]>();
   let joiners: [number, number][] = [];
   let mouseWorld: [number, number] | null = null;
+  let mouseScreen: [number, number] = [0, 0];
   // The host (enemy) gets a random shape/mode/colour theme each board, for variety.
   let enemy: EnemyTheme = pickEnemyTheme(initial.seed);
   const enemyLit = (): RGB => mix(enemy.color, C.white, 0.28);
@@ -235,7 +239,10 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
     }
     return best;
   };
-  canvas.addEventListener('pointermove', (e) => (mouseWorld = toWorld(e.clientX, e.clientY)));
+  canvas.addEventListener('pointermove', (e) => {
+    mouseWorld = toWorld(e.clientX, e.clientY);
+    mouseScreen = [e.clientX, e.clientY];
+  });
   canvas.addEventListener('pointerup', (e) => {
     const [wx, wy] = toWorld(e.clientX, e.clientY);
     if (game.phase === 'PLAN') game.chooseSide(wx < 0 ? 'left' : 'right');
@@ -280,11 +287,15 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
   // Paint one element glyph (from circuitElements) at a tube point. `tint` is an
   // optional override colour (used to gray glyphs while the board is unpowered);
   // otherwise each GlyphDot keeps its own semantic colour.
-  const drawGlyph = (kind: GlyphKind, gx: number, gy: number, nowSec: number, glow: number, dotScale: number, tint?: RGB): void => {
+  const drawGlyph = (kind: GlyphKind, gx: number, gy: number, nowSec: number, glow: number, dotScale: number, tint?: RGB, angle = 0): void => {
+    const ca = Math.cos(angle);
+    const sa = Math.sin(angle);
     for (const g of elementGlyphDots(kind, nowSec)) {
       const col = tint ?? g.col;
       const b = glow * g.a;
-      field.dot(gx + g.x * dotScale, gy + g.y * dotScale, col[0]! * b, col[1]! * b, col[2]! * b, 1.4 + g.r * 6, Math.min(1, g.a));
+      const rx = g.x * ca - g.y * sa;
+      const ry = g.x * sa + g.y * ca;
+      field.dot(gx + rx * dotScale, gy + ry * dotScale, col[0]! * b, col[1]! * b, col[2]! * b, 1.4 + g.r * 6, Math.min(1, g.a));
     }
   };
 
@@ -381,11 +392,21 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
       const gk = glyphForKind(r.kind);
       const q = at(r.dots, glyphU(r.kind));
       drawGlyph(gk, q.x, q.y, nowSec, gb, 0.03, tint);
-      // a SPLIT fork glyph at the branch of any multi-outcome terminal
-      // (drawn once, on the primary route, just past the terminal stub)
+      // a SPLIT fork glyph at the branch of any multi-outcome terminal (drawn
+      // once, on the primary route), rotated so it opens toward the cells it
+      // splits to — the glyph's fork opens +y by default.
       if (r.fork && r.primary) {
         const f = at(r.dots, 0.22);
-        drawGlyph('SPLIT', f.x, f.y, nowSec, gb * 0.85, 0.026, tint);
+        let ax = 0;
+        let ay = 0;
+        for (const g2 of routes) {
+          if (g2.side !== r.side || g2.term !== r.term) continue;
+          const [cx2, cy2] = cellPos(g2.cell);
+          ax += cx2 - f.x;
+          ay += cy2 - f.y;
+        }
+        const angle = Math.atan2(ay, ax) - Math.PI / 2;
+        drawGlyph('SPLIT', f.x, f.y, nowSec, gb * 0.85, 0.026, tint, angle);
       }
     }
 
@@ -493,6 +514,32 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
     } else prompt.style.opacity = '0';
     if ((game.phase === 'WON' || game.phase === 'LOST' || game.phase === 'DEADLOCK') && overlay.style.display === 'none') showOverlay();
 
+    // hover tooltip: what the wire under the cursor does
+    if (previewing && hoverSide && (game.phase === 'PLAN' || game.phase === 'RUN')) {
+      const kinds: GlyphKind[] = [];
+      let forked = false;
+      for (const r of routes) {
+        if (r.side !== hoverSide || r.term !== hoverTerm) continue;
+        if (r.fork) forked = true;
+        const gk = glyphForKind(r.kind);
+        if (!kinds.includes(gk)) kinds.push(gk);
+      }
+      if (forked && !kinds.includes('SPLIT')) kinds.unshift('SPLIT');
+      if (joiners.some(([a, b]) => a === hoverTerm || b === hoverTerm) && !kinds.includes('JOINER')) kinds.push('JOINER');
+      const rows = kinds
+        .map((k) => {
+          const info = infoByKind.get(k);
+          return info ? `<div style="margin:2px 0"><b style="color:${glyphColorCss[k]}">${info.name}</b> — ${info.meaning}</div>` : '';
+        })
+        .join('');
+      tooltip.innerHTML = rows;
+      tooltip.style.left = `${Math.min(mouseScreen[0] + 16, window.innerWidth - 248)}px`;
+      tooltip.style.top = `${Math.min(mouseScreen[1] + 16, window.innerHeight - 96)}px`;
+      tooltip.style.display = 'block';
+    } else {
+      tooltip.style.display = 'none';
+    }
+
     raf = requestAnimationFrame(loop);
   }
   loop();
@@ -507,7 +554,7 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
       window.removeEventListener('resize', resize);
       field.dispose();
       composer.dispose();
-      [timerSvg, prompt, tally, legend, overlay].forEach((n) => n.remove());
+      [timerSvg, prompt, tally, legend, overlay, tooltip].forEach((n) => n.remove());
       renderer.dispose();
     },
   };
