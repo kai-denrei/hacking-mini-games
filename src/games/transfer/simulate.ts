@@ -81,7 +81,7 @@ export function simulate(
       owners[ev.cell] = self;
       locked.add(ev.cell);
     } else if (ev.kind === 'FLIP') owners[ev.cell] = opp; // filled transformer: feeds the enemy
-    else if (ev.kind === 'CONVERT') owners[ev.cell] = cur === opp ? 'NEUTRAL' : cur === 'NEUTRAL' ? self : self; // advance-only
+    else if (ev.kind === 'CONVERT') owners[ev.cell] = cur === opp ? 'NEUTRAL' : self; // advance-only
     else if (ev.kind === 'INVERT') owners[ev.cell] = cur === 'NEUTRAL' ? self : cur === 'P' ? 'E' : 'P'; // legacy
     // REPEAT was already expanded to CLAIM events in emit(); no default needed
   }
@@ -95,7 +95,7 @@ export function simulate(
 
 // ── scheduling helpers ──────────────────────────────────────────────────────
 
-const liveCells = (t: Terminal): number[] => t.outcomes.filter((o) => o.kind !== 'DEAD').map((o) => o.cell);
+const liveCells = (t: Terminal): number[] => t.outcomes.filter((o) => o.kind !== 'DEAD' && o.kind !== 'SHORT').map((o) => o.cell);
 const maxDelay = (t: Terminal): number => Math.max(0, ...t.outcomes.map((o) => o.delay));
 
 /** Greedily choose `k` terminals maximizing distinct influenced cells. */

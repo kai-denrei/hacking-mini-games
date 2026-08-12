@@ -112,7 +112,7 @@ export const RULES: GameRules[] = [
       'A FLIP node gives the cell to the opponent side; FLIP-owned cells count against your total.',
       'Deadlock (6 Complete) replays the board from scratch — no win, no loss, just another try.',
     ],
-    note: 'Game 8: the read-the-circuit model brought to a single-player puzzle form. Wire vocabulary is shared with TUBES (game 5).',
+    note: 'Game 8: the read-the-circuit model brought to a duel against the host with the full wire vocabulary. Shared with TUBES (game 5).',
     glossary: ELEMENT_INFO,
   },
   {

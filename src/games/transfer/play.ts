@@ -106,7 +106,7 @@ export class TransferGame {
       this.owners[p.cell] = self;
       this.locked.add(p.cell);
     } else if (p.kind === 'FLIP') this.owners[p.cell] = opp; // filled transformer: feeds the enemy
-    else if (p.kind === 'CONVERT') this.owners[p.cell] = cur === opp ? 'NEUTRAL' : cur === 'NEUTRAL' ? self : self; // advance-only
+    else if (p.kind === 'CONVERT') this.owners[p.cell] = cur === opp ? 'NEUTRAL' : self; // advance-only
     else if (p.kind === 'INVERT') this.owners[p.cell] = cur === 'NEUTRAL' ? self : cur === 'P' ? 'E' : 'P'; // legacy
     else if (p.kind === 'REPEAT') {
       this.owners[p.cell] = self;

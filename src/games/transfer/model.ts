@@ -140,10 +140,10 @@ export function layerQuality(l: Layer): number {
   return l.terminals.reduce((s, t) => s + terminalValue(t), 0);
 }
 
-/** distinct cells a layer can influence (non-dead outcomes) */
+/** distinct cells a layer can influence (non-dead, non-short outcomes) */
 export function reachSet(l: Layer): Set<number> {
   const s = new Set<number>();
-  for (const t of l.terminals) for (const o of t.outcomes) if (o.kind !== 'DEAD') s.add(o.cell);
+  for (const t of l.terminals) for (const o of t.outcomes) if (o.kind !== 'DEAD' && o.kind !== 'SHORT') s.add(o.cell);
   return s;
 }
 

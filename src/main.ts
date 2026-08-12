@@ -100,10 +100,16 @@ function mountGame(name: GameName): void {
 
 function reseed(): void {
   if (!current) return;
-  seq += 1;
   try {
     if (DUEL.has(currentName)) {
       const g = (current as DuelGame).game();
+      // 6–6 DEADLOCK: replay the exact same board (same seed, same rung, no seq bump)
+      if (g.phase === 'DEADLOCK') {
+        (current as DuelGame).regenerate(LADDER[rung]!, g.board.seed);
+        updateLadderHud();
+        return;
+      }
+      seq += 1;
       // Advance the ladder only when a match has actually resolved: a win climbs
       // a rung, a strict loss reverts to the shallow end. A tie (or reseeding
       // mid-match) replays the same rung.
@@ -118,6 +124,7 @@ function reseed(): void {
       (current as DuelGame).regenerate(LADDER[rung]!, `${currentName}-${seq}`);
       updateLadderHud(trend);
     } else {
+      seq += 1;
       (current as SimpleGame).regenerate(CFG.difficulty, `${currentName}-${seq}`);
     }
   } catch (err) {

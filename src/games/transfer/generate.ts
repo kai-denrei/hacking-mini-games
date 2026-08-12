@@ -106,16 +106,7 @@ function makeLayer(rng: RNG, params: TierParams, elements: 'legacy' | 'full' = '
     const deadOutcome6 = t6.outcomes.find((o) => o.kind === 'DEAD');
     if (deadOutcome6) deadOutcome6.kind = 'SHORT';
 
-    // 4. CONVERT: add a CONVERT outcome on terminal 3 (mid-range, still clean-ish)
-    //    Only if it won't drop clean count below 5. Terminal 3 currently has only CLAIM,
-    //    so adding CONVERT makes it a mixed terminal (not purely clean). We only add it
-    //    if we still have ≥5 clean terminals after (terminals 0,1,2,4 = 4 clean + terminal 3 goes mixed).
-    //    Check: after LOCK promotion, terminals 0,1,2,3,4 are clean (0 has LOCK which is fine).
-    //    Adding CONVERT to terminal 3 makes it mixed → 4 clean. That's below 5. Skip terminal 3.
-    //    Use terminal 4 instead — add as second outcome: still 5 clean if terminal 4 stays otherwise clean.
-    //    Actually: to maintain ≥5 clean, add CONVERT as an additional outcome on terminal 2 only.
-    //    Terminal 2 with CLAIM+CONVERT is "mixed" → drops clean count. Instead add to terminal 5
-    //    which already has DEAD/INVERT — it's already dirty. Adding CONVERT makes it richer but still dirty.
+    // 4. CONVERT: add to terminal 5 (already a dirty trap terminal, so the ≥5-clean invariant holds).
     const t5 = terminals[5]!;
     const convertCell = order[(5 + 7) % 12]!; // a mid cell
     if (!t5.outcomes.some((o) => o.cell === convertCell)) {
@@ -138,6 +129,18 @@ function makeLayer(rng: RNG, params: TierParams, elements: 'legacy' | 'full' = '
     if (term1SecondClaim && term2PrimaryClaim) {
       term1SecondClaim.cell = term2PrimaryClaim.cell;
       joinerPair = [1, 2];
+    }
+
+    // 6. INVERT sweep: full-vocab boards must not expose bare INVERT (HDT renders
+    //    INVERT with the CONVERT glyph, which misreads — INVERT ≠ CONVERT semantics).
+    //    After all decoration, retype any remaining INVERT outcome to CONVERT.
+    //    Value is unchanged (CONVERT is 0.5, same as the generator treats INVERT
+    //    non-terminally), and solvability is unaffected because the generator verifies
+    //    with the real simulator after makeLayer returns.
+    for (const t of terminals) {
+      for (const o of t.outcomes) {
+        if (o.kind === 'INVERT') o.kind = 'CONVERT';
+      }
     }
   }
 

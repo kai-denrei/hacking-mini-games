@@ -153,17 +153,13 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
   const prompt = mk(`position:fixed;left:50%;top:56px;transform:translateX(-50%);font:12px ${monoF};color:#9a9aa6;pointer-events:none;text-align:center`);
   const tally = mk(`position:fixed;left:12px;bottom:12px;font:11px ${monoF};color:#55555f;pointer-events:none`);
   const legend = mk(`position:fixed;right:12px;bottom:12px;font:11px ${monoF};color:#6a6a76;pointer-events:none;text-align:right`);
-  // Name the visible elements from the shared ELEMENT_INFO source of truth.
-  const glyphColorCss: Record<GlyphKind, string> = {
-    CLAIM: '#66f0b0',
-    SPLIT: '#66f0b0',
-    LOCK: '#ffd166',
-    JOINER: '#f0c766',
-    DEAD: '#f26660',
-    SHORT: '#ff9a4d',
-    FLIP: '#f26660',
-    CONVERT: '#f0c766',
-  };
+  // Derive legend colors from the single-source ELEMENT_INFO tag (good/tool/bad).
+  const glyphColorCss = Object.fromEntries(
+    ELEMENT_INFO.map((e) => [
+      e.kind,
+      e.tag === 'bad' ? '#f26660' : e.tag === 'tool' ? '#f0c766' : '#66f0b0',
+    ]),
+  ) as Record<GlyphKind, string>;
   legend.innerHTML = ELEMENT_INFO.map((e) => `<span style="color:${glyphColorCss[e.kind]}">${e.name.toLowerCase()}</span>`).join(' · ');
   const overlay = mk(`position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(5,6,10,.55);font:${monoF};text-align:center;pointer-events:none`);
 
@@ -396,8 +392,19 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
     // JOINER glyphs — for each pair, mark the shared cell approach on both tubes
     for (const [ta, tb] of joiners) {
       for (const side of ['left', 'right'] as Side[]) {
+        const layer = layerOf(board, side);
+        // find the cell shared by terminal ta and terminal tb
+        const cellsA = new Set(layer.terminals[ta]?.outcomes.map((o) => o.cell) ?? []);
+        const sharedCell = layer.terminals[tb]?.outcomes.find((o) => cellsA.has(o.cell))?.cell;
         for (const term of [ta, tb]) {
-          const r = routes.find((rr) => rr.side === side && rr.term === term && rr.kind === 'CLAIM');
+          // match on the shared cell so the marker sits on the correct tube
+          const r = routes.find(
+            (rr) =>
+              rr.side === side &&
+              rr.term === term &&
+              rr.kind === 'CLAIM' &&
+              (sharedCell === undefined || rr.cell === sharedCell),
+          );
           if (!r) continue;
           const tint: RGB | undefined = powered ? undefined : C.offGlyph;
           const q = at(r.dots, 0.82);

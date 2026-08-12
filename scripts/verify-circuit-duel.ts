@@ -72,6 +72,8 @@ eq(outcomeFor(6), 'DEADLOCK', '6→DEADLOCK');
 eq(outcomeFor(5), 'LOST', '5→LOST');
 console.log('task3 OK');
 
+// (task4 was folded into task2: LOCK freeze behavior is verified there)
+
 import { simulate, aiSchedule, playerFireLate } from '../src/games/transfer/simulate.ts';
 {
   const b = stubBoard('FLIP');
