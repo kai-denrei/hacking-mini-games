@@ -12,7 +12,7 @@ import type { Difficulty } from '../../engine/session.ts';
 // A terminal with two outcomes is a SPLIT.
 
 export type Owner = 'NEUTRAL' | 'P' | 'E';
-export type OutcomeKind = 'CLAIM' | 'INVERT' | 'DEAD' | 'REPEAT';
+export type OutcomeKind = 'CLAIM' | 'INVERT' | 'DEAD' | 'REPEAT' | 'LOCK' | 'SHORT' | 'FLIP' | 'CONVERT';
 
 export interface Outcome {
   cell: number; // 0..11
@@ -62,6 +62,7 @@ export interface Board {
 
 export const CELLS = 12;
 export const WIN = 7;
+export const DEADLOCK_AT = 6;
 
 // Class model (study §"Concrete amendments"). Pulses = base + class; the board's
 // hazard density and defender AI key off the defender's class; the timer is
@@ -117,14 +118,18 @@ export const TIERS: Record<Difficulty, TierParams> = {
   5: { tMatch: 10, pPulses: 6, ePulses: 12, traps: 6, repeats: 2, ai: 'optimal-ish' },
 };
 
-// static value of a terminal (expected influence): a REPEAT gun is worth more
-// than a one-shot claim; a bare INVERT is contextual so counts partial.
+// static value of a terminal (expected influence), used by generation balance +
+// the AI's target choice. Good wires are positive; the filled transformer is a
+// trap (negative); dead/short are wasted (0).
 export function terminalValue(t: Terminal): number {
   let v = 0;
   for (const o of t.outcomes) {
     if (o.kind === 'CLAIM') v += 1;
-    else if (o.kind === 'REPEAT') v += 2;
+    else if (o.kind === 'REPEAT' || o.kind === 'LOCK') v += 2;
     else if (o.kind === 'INVERT') v += 0.5;
+    else if (o.kind === 'CONVERT') v += 0.5;
+    else if (o.kind === 'FLIP') v -= 1;
+    // DEAD, SHORT → 0
   }
   return v;
 }
