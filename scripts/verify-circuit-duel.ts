@@ -100,3 +100,12 @@ import { layerOf } from '../src/games/transfer/model.ts';
   eq(['LOCK', 'SHORT', 'FLIP', 'CONVERT'].some((k) => kinds.has(k)), true, 'full vocabulary present');
 }
 console.log('task6 OK');
+
+import { elementGlyphDots, ELEMENT_INFO } from '../src/render/circuitElements.ts';
+for (const info of ELEMENT_INFO) {
+  const dots = elementGlyphDots(info.kind, 0.7);
+  if (!dots.length) throw new Error(`FAIL ${info.kind} empty`);
+  for (const d of dots) if (![d.x, d.y, d.r, d.a].every(Number.isFinite)) throw new Error(`FAIL ${info.kind} NaN`);
+}
+eq(ELEMENT_INFO.length, 8, '8 elements');
+console.log('task7 OK');
