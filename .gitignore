@@ -11,3 +11,6 @@ dist/
 # OS / editor cruft
 .DS_Store
 *.log
+
+# subagent-driven-development runtime scratch (ledger/briefs/reports)
+.superpowers/
