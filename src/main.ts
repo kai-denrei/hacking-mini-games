@@ -9,7 +9,7 @@ import type { Difficulty, Skill } from './engine/session.ts';
 
 // App entry + tiny router. Press 1 = CONSTELLATION, 2 = TRACE, 3 = HDT.
 // R (or the ⟳ button) reseeds the current game. Dev log mounts once.
-mountDevLog();
+const devlog = mountDevLog();
 
 const CFG = { difficulty: 2 as Difficulty, skill: 2 as Skill };
 type GameName = 'constellation-orbs' | 'trace' | 'circuit-duel-2';
@@ -180,7 +180,10 @@ function updateLadderHud(trend: '' | 'up' | 'down' = ''): void {
     `<span style="color:#5a5a64">win → climb · lose → reset</span>`;
 }
 
-const landing = mountLanding((game) => mountGame(game));
+const landing = mountLanding(
+  (game) => mountGame(game),
+  (gameName) => devlog.openRules(gameName),
+);
 
 // Deep-link /1../6 straight into a game; the bare base URL shows the picker.
 const rel = location.pathname.startsWith(BASE) ? location.pathname.slice(BASE.length) : location.pathname.replace(/^\//, '');

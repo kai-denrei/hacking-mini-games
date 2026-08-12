@@ -1,6 +1,7 @@
 import { STATUS, MILESTONES, ROADMAP, type Milestone } from './changelog.ts';
 import { RULES } from './rules.ts';
 import { elementGlyphDots, type GlyphKind } from '../render/circuitElements.ts';
+import { traceGlyphDots, type TraceGlyphKind } from '../render/traceGlyphs.ts';
 
 // A dev-log panel that opens when the cache-bust version badge (#cb-badge,
 // bottom-right) is clicked. Two tabs: the build changelog + roadmap, and the
@@ -55,7 +56,7 @@ function renderGlossaryHTML(glossary: NonNullable<(typeof RULES)[number]['glossa
     const tagClass = `cx-gtag cx-gtag-${el.tag}`;
     return `
       <div class="cx-grow">
-        <canvas class="cx-gcanvas" data-kind="${esc(el.kind)}" width="40" height="40" aria-hidden="true"></canvas>
+        <canvas class="cx-gcanvas" data-kind="${esc(el.kind)}" data-source="${esc(el.source)}" width="40" height="40" aria-hidden="true"></canvas>
         <div class="cx-ginfo">
           <span class="cx-gname">${esc(el.name)}</span>
           <span class="cx-gmeaning">${esc(el.meaning)}</span>
@@ -66,27 +67,33 @@ function renderGlossaryHTML(glossary: NonNullable<(typeof RULES)[number]['glossa
   return `<div class="cx-lbl">Wire vocabulary</div><div class="cx-glossary">${rows}</div>`;
 }
 
-function renderRules(): string {
-  const cards = RULES.map((g) => {
-    const how = g.how.map((h) => `<li>${esc(h)}</li>`).join('');
-    const fail = g.fail.map((f) => `<li>${esc(f)}</li>`).join('');
-    const note = g.note ? `<div class="cx-gnote">${esc(g.note)}</div>` : '';
-    const glossary = g.glossary ? renderGlossaryHTML(g.glossary) : '';
-    return `
-      <div class="cx-game">
-        <div class="cx-game-h"><span class="cx-game-n">${esc(g.name)}</span>
-          <span class="cx-badge cx-${g.status.replace(/\s/g, '')}">${esc(g.status)}</span></div>
-        <div class="cx-fantasy">${esc(g.fantasy)}</div>
-        <div class="cx-lbl">How to play</div><ul>${how}</ul>
-        <div class="cx-lbl">Failure</div><ul class="cx-fail">${fail}</ul>
-        ${note}
-        ${glossary}
-      </div>`;
-  }).join('');
-  return `<div class="cx-scroll">${cards}</div>`;
+function renderCard(g: (typeof RULES)[number]): string {
+  const how = g.how.map((h) => `<li>${esc(h)}</li>`).join('');
+  const fail = g.fail.map((f) => `<li>${esc(f)}</li>`).join('');
+  const note = g.note ? `<div class="cx-gnote">${esc(g.note)}</div>` : '';
+  const glossary = g.glossary ? renderGlossaryHTML(g.glossary) : '';
+  return `
+    <div class="cx-game">
+      <div class="cx-game-h"><span class="cx-game-n">${esc(g.name)}</span>
+        <span class="cx-badge cx-${g.status.replace(/\s/g, '')}">${esc(g.status)}</span></div>
+      <div class="cx-fantasy">${esc(g.fantasy)}</div>
+      <div class="cx-lbl">How to play</div><ul>${how}</ul>
+      <div class="cx-lbl">Failure</div><ul class="cx-fail">${fail}</ul>
+      ${note}
+      ${glossary}
+    </div>`;
 }
 
-function render(tab: Tab): string {
+// One sub-tab per game; only the selected game's rules are shown.
+function renderRules(selected: string): string {
+  const tabs = RULES.map(
+    (g) => `<button class="cx-rtab ${g.name === selected ? 'on' : ''}" data-rules-game="${esc(g.name)}">${esc(g.name)}</button>`,
+  ).join('');
+  const g = RULES.find((x) => x.name === selected) ?? RULES[0]!;
+  return `<div class="cx-rtabs">${tabs}</div><div class="cx-scroll">${renderCard(g)}</div>`;
+}
+
+function render(tab: Tab, rulesGame: string): string {
   return `
     <div class="cx-head">
       <div>
@@ -99,7 +106,7 @@ function render(tab: Tab): string {
       <button class="cx-tab ${tab === 'log' ? 'on' : ''}" data-tab="log">Dev Log</button>
       <button class="cx-tab ${tab === 'rules' ? 'on' : ''}" data-tab="rules">Rules</button>
     </div>
-    ${tab === 'log' ? renderLog() : renderRules()}`;
+    ${tab === 'log' ? renderLog() : renderRules(rulesGame)}`;
 }
 
 function paintGlossaryCanvases(root: HTMLElement): void {
@@ -111,7 +118,7 @@ function paintGlossaryCanvases(root: HTMLElement): void {
   const R = 16; // glyph radius in CSS px
 
   root.querySelectorAll<HTMLCanvasElement>('canvas.cx-gcanvas').forEach((canvas) => {
-    const kind = canvas.dataset.kind as GlyphKind | undefined;
+    const kind = canvas.dataset.kind;
     if (!kind) return;
     canvas.width = PHYSICAL;
     canvas.height = PHYSICAL;
@@ -125,7 +132,7 @@ function paintGlossaryCanvases(root: HTMLElement): void {
     ctx.fillStyle = '#0a0a10';
     ctx.fillRect(0, 0, CSS_SIZE, CSS_SIZE);
 
-    const dots = elementGlyphDots(kind, 0.7);
+    const dots = canvas.dataset.source === 'trace' ? traceGlyphDots(kind as TraceGlyphKind, 0.7) : elementGlyphDots(kind as GlyphKind, 0.7);
     for (const d of dots) {
       const px = CX + d.x * R;
       const py = CY + d.y * R;
@@ -157,6 +164,11 @@ const CSS = `
   #cx-panel .cx-tab{background:none;border:none;border-bottom:2px solid transparent;color:#777;
     cursor:pointer;padding:6px 10px;font:inherit}
   #cx-panel .cx-tab.on{color:#e6e6ee;border-bottom-color:#8fd0b6}
+  #cx-panel .cx-rtabs{display:flex;gap:5px;flex-wrap:wrap;padding:9px 12px 2px}
+  #cx-panel .cx-rtab{background:#13131b;border:1px solid #20202a;border-radius:5px;color:#8a8a96;
+    cursor:pointer;padding:4px 9px;font:11px/1 ui-monospace,Menlo,monospace;letter-spacing:.05em}
+  #cx-panel .cx-rtab.on{background:#23233a;color:#e6e6ee;border-color:#3a3a52}
+  #cx-panel .cx-rtab:hover:not(.on){color:#c7c7cf}
   #cx-panel .cx-status{padding:10px 14px;color:#9a9aa6;border-bottom:1px solid #20202a}
   #cx-panel .cx-scroll{overflow:auto;padding:8px 14px 14px}
   #cx-panel .cx-sec{color:#7a7a86;text-transform:uppercase;letter-spacing:.08em;font-size:10px;margin:12px 0 6px}
@@ -198,7 +210,12 @@ const CSS = `
   #cx-panel .cx-gtag-tool{background:#2c2414;color:#e0b070}
 `;
 
-export function mountDevLog(): void {
+export interface DevLog {
+  /** Open the panel to a game's Rules sub-tab (by RULES entry name). */
+  openRules(gameName: string): void;
+}
+
+export function mountDevLog(): DevLog {
   const style = document.createElement('style');
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -208,13 +225,20 @@ export function mountDevLog(): void {
   document.body.appendChild(panel);
 
   let tab: Tab = 'log';
+  let rulesGame = RULES[0]!.name;
 
   const paint = (): void => {
-    panel.innerHTML = render(tab);
+    panel.innerHTML = render(tab, rulesGame);
     panel.querySelector('.cx-close')?.addEventListener('click', () => setOpen(false));
     panel.querySelectorAll<HTMLButtonElement>('.cx-tab').forEach((b) => {
       b.addEventListener('click', () => {
         tab = (b.dataset.tab as Tab) ?? 'log';
+        paint();
+      });
+    });
+    panel.querySelectorAll<HTMLButtonElement>('.cx-rtab').forEach((b) => {
+      b.addEventListener('click', () => {
+        rulesGame = b.dataset.rulesGame ?? rulesGame;
         paint();
       });
     });
@@ -242,4 +266,12 @@ export function mountDevLog(): void {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') setOpen(false);
   });
+
+  return {
+    openRules(gameName: string): void {
+      tab = 'rules';
+      if (RULES.some((g) => g.name === gameName)) rulesGame = gameName;
+      setOpen(true);
+    },
+  };
 }

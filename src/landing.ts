@@ -53,7 +53,7 @@ export interface Landing {
   dispose(): void;
 }
 
-export function mountLanding(onPick: (game: GameName) => void): Landing {
+export function mountLanding(onPick: (game: GameName) => void, onRules: (gameName: string) => void): Landing {
   const mono = 'ui-monospace,SFMono-Regular,Menlo,monospace';
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const DPR = Math.min(2, window.devicePixelRatio || 1);
@@ -87,13 +87,14 @@ export function mountLanding(onPick: (game: GameName) => void): Landing {
   const motifs: Motif[] = [];
 
   for (const spec of CARDS) {
-    const card = document.createElement('button');
-    card.type = 'button';
+    const card = document.createElement('div');
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
     card.setAttribute('aria-label', `play ${spec.name}`);
     card.style.cssText =
-      `all:unset;box-sizing:border-box;cursor:pointer;width:258px;background:#0e0f16;border:1px solid #1c1d29;` +
+      `box-sizing:border-box;cursor:pointer;width:258px;background:#0e0f16;border:1px solid #1c1d29;` +
       `border-radius:12px;overflow:hidden;display:flex;flex-direction:column;transition:border-color .18s,transform .18s;` +
-      `-webkit-tap-highlight-color:transparent`;
+      `-webkit-tap-highlight-color:transparent;outline:none`;
 
     const preview = document.createElement('div');
     preview.style.cssText = 'position:relative;height:132px;background:#090a10;display:flex;align-items:center;justify-content:center';
@@ -114,8 +115,24 @@ export function mountLanding(onPick: (game: GameName) => void): Landing {
     bodyEl.style.cssText = 'padding:.9rem 1.1rem 1.1rem;text-align:left';
     bodyEl.innerHTML =
       `<div style="font:500 15px ${mono};letter-spacing:.14em;color:#e6e8f0">${spec.name}</div>` +
-      `<div style="margin-top:.5rem;font:12px/1.6 ${mono};color:#71737f">${spec.desc}</div>` +
-      `<div style="margin-top:.9rem;font:11px ${mono};letter-spacing:.14em;color:${spec.accent}">PLAY →</div>`;
+      `<div style="margin-top:.5rem;font:12px/1.6 ${mono};color:#71737f">${spec.desc}</div>`;
+    // footer actions: PLAY (whole card) + Rules (opens the dev-log rules tab)
+    const actions = document.createElement('div');
+    actions.style.cssText = 'margin-top:.9rem;display:flex;align-items:center;gap:1rem';
+    actions.innerHTML = `<span style="font:11px ${mono};letter-spacing:.14em;color:${spec.accent}">PLAY →</span>`;
+    const rulesBtn = document.createElement('button');
+    rulesBtn.type = 'button';
+    rulesBtn.textContent = 'Rules';
+    rulesBtn.style.cssText =
+      `all:unset;cursor:pointer;font:11px ${mono};letter-spacing:.1em;color:#6a6c7a;border-bottom:1px solid transparent`;
+    rulesBtn.addEventListener('mouseenter', () => (rulesBtn.style.color = '#c7c9d4'));
+    rulesBtn.addEventListener('mouseleave', () => (rulesBtn.style.color = '#6a6c7a'));
+    rulesBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onRules(spec.name);
+    });
+    actions.appendChild(rulesBtn);
+    bodyEl.appendChild(actions);
     card.appendChild(bodyEl);
 
     card.addEventListener('mouseenter', () => {
@@ -129,6 +146,12 @@ export function mountLanding(onPick: (game: GameName) => void): Landing {
     card.addEventListener('focus', () => (card.style.borderColor = spec.accent));
     card.addEventListener('blur', () => (card.style.borderColor = '#1c1d29'));
     card.addEventListener('click', () => onPick(spec.game));
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onPick(spec.game);
+      }
+    });
 
     rowc.appendChild(card);
     motifs.push({ canvas, ctx: canvas.getContext('2d')!, spec });
