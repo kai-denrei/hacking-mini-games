@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { DotField } from '../../render/dotfield.ts';
 import { searching, solving, type Shape, type PDot } from '../../render/primitives.ts';
+import { modeDots, pickEnemyTheme, type EnemyTheme, type MDot } from '../../render/primModes.ts';
 import { generateBoard } from '../transfer/generate.ts';
 import { TransferGame } from '../transfer/play.ts';
 import { layerOf, type Board, type OutcomeKind, type Owner, type MatchSpec } from '../transfer/model.ts';
@@ -124,6 +125,9 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
   let routes: Route[] = [];
   let routeMap = new Map<string, TraceDot[]>();
   let mouseWorld: [number, number] | null = null;
+  // The host (enemy) gets a random shape/mode/colour theme each board, for variety.
+  let enemy: EnemyTheme = pickEnemyTheme(initial.seed);
+  const enemyLit = (): RGB => mix(enemy.color, C.white, 0.28);
 
   // (Re)compute every tube's dot path from the current layout — must run again
   // whenever the vertical gain changes (resize), since traceDots bakes in the
@@ -144,6 +148,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
   function build(spec: MatchSpec, seed: string): void {
     board = generateBoard(spec, seed);
     game = new TransferGame(board);
+    enemy = pickEnemyTheme(seed);
     buildRoutes();
     overlay.style.display = 'none';
   }
@@ -261,6 +266,14 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
       field.dot(ax + d.x * s, ay + d.y * s, col[0]! * b, col[1]! * b, col[2]! * b, 1.4 + 2.2 * d.depth + d.scan * 2.6, 0.95);
     }
   };
+  // like drawPrim but honours per-dot alpha — for the themed enemy orbs, whose
+  // modes (connecting/composing/…) carry faint ghost + bright signal dots.
+  const drawMode = (dots: MDot[], ax: number, ay: number, s: number, col: RGB, glow: number): void => {
+    for (const d of dots) {
+      const b = (0.3 + 0.7 * d.depth + d.scan * 0.7) * glow;
+      field.dot(ax + d.x * s, ay + d.y * s, col[0]! * b, col[1]! * b, col[2]! * b, 1.4 + 2.2 * d.depth + d.scan * 2.6, Math.min(1, d.a));
+    }
+  };
   const at = (dots: TraceDot[], u: number): TraceDot => {
     let bi = 0;
     let bd = 9;
@@ -322,13 +335,22 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     // tubes + elements
     for (const r of routes) {
       const role = game.playerSide ? (r.side === game.playerSide ? 'P' : 'E') : 'N';
-      // Green side = your side (or the left circuit before a side is taken);
-      // white side = the host (or the right circuit). Each cycles its own family.
-      const isGreen = role === 'P' || (role === 'N' && r.side === 'left');
-      const fam = isGreen ? GREEN_SHADES : WHITE_SHADES;
-      const sh = fam[r.term % fam.length]!;
-      const dim: RGB = scale(sh, role === 'N' ? 0.24 : 0.2);
-      const flow: RGB = sh;
+      // Your side (or the left circuit before a side is taken) is green; the
+      // host is its theme colour; neutral right is white. A per-terminal tone
+      // keeps overlapping lanes distinct.
+      let dim: RGB;
+      let flow: RGB;
+      if (role === 'E') {
+        const tone = 0.8 + 0.2 * (r.term % 2);
+        dim = scale(enemy.dim, tone);
+        flow = scale(enemy.color, tone);
+      } else {
+        const isGreen = role === 'P' || (role === 'N' && r.side === 'left');
+        const fam = isGreen ? GREEN_SHADES : WHITE_SHADES;
+        const sh = fam[r.term % fam.length]!;
+        dim = scale(sh, role === 'N' ? 0.24 : 0.2);
+        flow = sh;
+      }
       const isPrev = previewing && r.side === hoverSide && r.term === hoverTerm;
       const active = lights.get(`${r.side}:${r.term}:${r.cell}`);
       const endU = r.kind === 'DEAD' ? 0.66 : 1;
@@ -344,7 +366,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
               const g = u <= L.p ? Math.exp(-(L.p - u) / 0.12) : Math.exp(-(u - L.p) / 0.025);
               if (g > b) {
                 b = g;
-                col = L.kind === 'DEAD' ? C.dead : L.owner === 'P' ? C.litP : C.litE;
+                col = L.kind === 'DEAD' ? C.dead : L.owner === 'P' ? C.litP : enemyLit();
               }
             }
           return { b, col };
@@ -373,7 +395,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
       const dots = routeMap.get(`${p.side}:${p.terminalId}:${p.cell}`);
       if (!dots) continue;
       const q = at(dots, Math.min(1, p.elapsed / p.delay));
-      const col = p.kind === 'DEAD' ? C.dead : mix(p.owner === 'P' ? C.litP : C.litE, C.white, 0.4);
+      const col = p.kind === 'DEAD' ? C.dead : mix(p.owner === 'P' ? C.litP : enemyLit(), C.white, 0.4);
       field.dot(q.x, q.y, col[0], col[1], col[2], 9);
     }
 
@@ -390,9 +412,13 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
       const owner = game.owners[i]!;
       const flash = game.claimFlash[i]! / 0.35;
       const oside = ownerSide(owner);
-      if (oside) {
+      if (oside && owner === 'E') {
+        // host-captured node: the enemy theme's node mode/shape/colour
+        const col = mix(enemy.color, C.white, flash * 0.5);
+        drawMode(modeDots(enemy.node, enemy.shape, nowSec + i * 0.5), x, y, 0.042, col, 0.95 + flash);
+      } else if (oside) {
         const shape: Shape = oside === 'left' ? 'octa' : 'cube';
-        const col = mix(owner === 'P' ? C.p : C.e, C.white, flash * 0.6);
+        const col = mix(C.p, C.white, flash * 0.6);
         drawPrim(solving(shape, nowSec + i * 0.5), x, y, 0.04, col, 0.95 + flash);
       } else {
         const s = 0.026;
@@ -409,18 +435,20 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     for (const side of ['left', 'right'] as Side[]) {
       const shape: Shape = side === 'left' ? 'octa' : 'cube';
       const role = game.playerSide ? (side === game.playerSide ? 'P' : 'E') : 'N';
-      const col = role === 'P' ? C.p : role === 'E' ? C.e : C.cellN;
+      const col = role === 'P' ? C.p : role === 'E' ? enemy.color : C.cellN;
       for (let i = 0; i < 8; i++) {
         const [x, y] = termPos(side, i);
         const hovered = hoverSide === side && hoverTerm === i && (game.phase === 'PLAN' || side === game.playerSide);
         const glow = hovered ? 1.6 : game.phase === 'PLAN' ? 0.7 + 0.35 * Math.sin(now / 240 + i) : 1;
-        drawPrim(searching(shape, nowSec + i * 0.7), x, y, termS, hovered ? mix(col, C.white, 0.4) : col, glow);
+        const c = hovered ? mix(col, C.white, 0.4) : col;
+        if (role === 'E') drawMode(modeDots(enemy.terminal, enemy.shape, nowSec + i * 0.7), x, y, termS, c, glow);
+        else drawPrim(searching(shape, nowSec + i * 0.7), x, y, termS, c, glow);
       }
     }
 
     const railY = 0.99 * vGain();
     for (let i = 0; i < game.pBudget; i++) field.dot(-0.24 + i * 0.05, -railY, C.p[0], C.p[1], C.p[2], 5);
-    if (initial.skill >= 3) for (let i = 0; i < game.eBudget; i++) field.dot(-0.24 + i * 0.05, railY, C.e[0], C.e[1], C.e[2], 5);
+    if (initial.skill >= 3) for (let i = 0; i < game.eBudget; i++) field.dot(-0.24 + i * 0.05, railY, enemy.color[0], enemy.color[1], enemy.color[2], 5);
 
     field.commit(renderer.getPixelRatio());
     composer.render();
@@ -429,7 +457,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     timerRing.setAttribute('r', String(3 + 18 * frac));
     timerRing.setAttribute('stroke', timerColor(frac));
     const c = game.counts();
-    tally.textContent = `you c${board.spec.attacker} vs host c${board.spec.defender} · ${c.p}–${c.e} · lead wins`;
+    tally.textContent = `you c${board.spec.attacker} vs ${enemy.label} c${board.spec.defender} · ${c.p}–${c.e} · lead wins`;
     if (game.phase === 'PLAN') {
       prompt.textContent = 'READ BOTH CIRCUITS — hover a terminal to preview its reach, then click a side to take it';
       prompt.style.opacity = '1';
