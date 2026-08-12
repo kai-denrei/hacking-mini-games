@@ -1,4 +1,6 @@
 import { execSync } from 'node:child_process';
+import { copyFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -15,6 +17,17 @@ export default defineConfig({
       apply: 'build',
       buildStart() {
         execSync('./scripts/bust.sh --quiet', { stdio: 'inherit' });
+      },
+    },
+    {
+      // GitHub Pages has no SPA fallback, so a hard-load of a deep link (/2, /3)
+      // 404s. Publish the built index.html as 404.html too — Pages then serves
+      // it for any unknown path and the client router (main.ts) mounts the game.
+      name: 'spa-404-fallback',
+      apply: 'build',
+      closeBundle() {
+        const out = resolve(__dirname, 'dist');
+        copyFileSync(resolve(out, 'index.html'), resolve(out, '404.html'));
       },
     },
     VitePWA({
