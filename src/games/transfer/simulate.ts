@@ -149,7 +149,11 @@ export function aiSchedule(
 
   if (policy === 'naive') {
     const pool = valued.slice().sort(() => rng() - 0.5).slice(0, budget);
-    return pool.map((x, k) => ({ t: ((k + 0.5) / Math.max(1, pool.length)) * tMatch * 0.9, terminal: x.i }));
+    // slow start: the host doesn't get going until ~25% in and finishes by ~75%,
+    // leaving the opening and the finish to the player (the gentle opening rungs).
+    const startF = 0.25;
+    const endF = 0.75;
+    return pool.map((x, k) => ({ t: (startF + ((k + 0.5) / Math.max(1, pool.length)) * (endF - startF)) * tMatch, terminal: x.i }));
   }
   if (policy === 'greedy') {
     // exhausts budget with ~30% of the timer left (exploitable by late overwrite)

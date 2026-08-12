@@ -76,13 +76,18 @@ export function aiForClass(defender: Klass): AiPolicy {
   return defender <= 2 ? 'naive' : defender <= 5 ? 'greedy' : defender <= 7 ? 'greedy+' : 'optimal-ish';
 }
 
+// The host ramps up with the ladder: at the low rungs it fires fewer pulses
+// (fewer hits) and — via the naive AI schedule — starts later and finishes
+// early (slower), so the opening rungs are gentle. Full aggression by class 5.
+export const enemyHandicap = (defender: Klass): number => (defender <= 2 ? 2 : defender <= 4 ? 1 : 0);
+
 export function classParams(spec: MatchSpec): TierParams {
   const ai = aiForClass(spec.defender);
   const attackerBonus = ai === 'optimal-ish' ? 1 : 0; // P90 rule: +1 pulse vs a perfect defender
   return {
     tMatch: T_MATCH,
     pPulses: PULSE_BASE + spec.attacker + attackerBonus,
-    ePulses: PULSE_BASE + spec.defender,
+    ePulses: Math.max(2, PULSE_BASE + spec.defender - enemyHandicap(spec.defender)),
     traps: Math.min(6, 1 + Math.round(spec.defender * 0.6)),
     repeats: spec.defender >= 6 ? 2 : spec.defender >= 3 ? 1 : 0,
     ai,
