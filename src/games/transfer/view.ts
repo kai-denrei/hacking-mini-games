@@ -175,10 +175,13 @@ export function mountTransfer(
 
   function showOverlay(): void {
     const c = game.counts();
+    const dead = game.phase === 'DEADLOCK';
     const won = game.phase === 'WON';
+    const title = won ? '◆ CIRCUIT TAKEN' : dead ? '⟳ DEADLOCK' : '✕ REPELLED';
+    const color = won ? '#8fd0b6' : dead ? '#e0b070' : '#d0605a';
     overlay.innerHTML =
-      `<div style="font-size:22px;letter-spacing:.2em;color:${won ? '#8fd0b6' : '#d0605a'}">${won ? '◆ CIRCUIT TAKEN' : '✕ REPELLED'}</div>` +
-      `<div style="font-size:12px;color:#9a9aa6">you ${c.p} · host ${c.e} · neutral ${c.n}</div>` +
+      `<div style="font-size:22px;letter-spacing:.2em;color:${color}">${title}</div>` +
+      (dead ? `<div style="font-size:12px;color:#9a9aa6">6–6 — the battle replays</div>` : `<div style="font-size:12px;color:#9a9aa6">you ${c.p} · host ${c.e} · neutral ${c.n}</div>`) +
       `<div style="font-size:11px;color:#55555f;margin-top:8px">press R or tap ⟳ to run again</div>`;
     overlay.style.display = 'flex';
   }
@@ -266,7 +269,7 @@ export function mountTransfer(
       prompt.textContent = 'click your terminals to fire · later pulse wins the cell';
       prompt.style.opacity = '0.7';
     } else prompt.style.opacity = '0';
-    if ((game.phase === 'WON' || game.phase === 'LOST') && overlay.style.display === 'none') showOverlay();
+    if ((game.phase === 'WON' || game.phase === 'LOST' || game.phase === 'DEADLOCK') && overlay.style.display === 'none') showOverlay();
 
     raf = requestAnimationFrame(loop);
   }
