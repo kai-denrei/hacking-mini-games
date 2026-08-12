@@ -7,6 +7,8 @@ import { DotField } from '../../render/dotfield.ts';
 import { generateBoard } from './generate.ts';
 import { TraceGame } from './game.ts';
 import { pDetect, type Board, type NodeType } from './model.ts';
+import { emotionFace, type EmotionId } from '../../render/brailleEmotions.ts';
+import { SITREP, DEVLOG, TRACEBACK, pick } from './flavor.ts';
 import type { Difficulty, Skill } from '../../engine/session.ts';
 
 // TRACE renderer — the graph as a dotted network: nodes are rating-weighted dot
@@ -76,6 +78,80 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
   const freezeBtn = btn('❄ FREEZE');
   const nukeBtn = btn('✚ NUKE');
 
+  // ── flavor terminal ─────────────────────────────────────────────────────────
+  // An old-school CRT window tucked in the top-left gap. A braille face reacts to
+  // the run (scan → suspicious → awe / scared / love) and a scrolling log spits
+  // out sitreps, dev notes, and — once you're made — the counter-trace.
+  const term = document.createElement('div');
+  term.style.cssText =
+    `position:fixed;left:10px;top:10px;z-index:5;width:clamp(188px,42vw,268px);` +
+    `background:rgba(3,10,6,.82);border:1px solid #1c4a30;border-radius:4px;` +
+    `box-shadow:0 0 14px rgba(20,90,50,.22),inset 0 0 22px rgba(10,40,24,.4);` +
+    `font:10px/1.4 ${mono};color:#5fd08a;overflow:hidden;pointer-events:none`;
+  term.innerHTML =
+    `<div style="display:flex;align-items:center;gap:5px;padding:3px 8px;background:rgba(20,60,36,.35);` +
+    `border-bottom:1px solid #17402a;color:#7fe0a4;letter-spacing:.1em;font-size:8.5px">` +
+    `<span style="color:#2f7a4c">●●●</span>&nbsp;trace.sh — root@breach</div>` +
+    `<pre class="cx-face" style="margin:0;padding:9px 0 5px;text-align:center;font-size:19px;line-height:.92;` +
+    `letter-spacing:3px;text-shadow:0 0 9px currentColor;white-space:pre"></pre>` +
+    `<div class="cx-log" style="padding:4px 8px 7px;font-size:8.5px;line-height:1.5;min-height:46px;` +
+    `border-top:1px solid #123420;color:#3f9d68"></div>`;
+  document.body.appendChild(term);
+  const faceEl = term.querySelector('.cx-face') as HTMLPreElement;
+  const logEl = term.querySelector('.cx-log') as HTMLDivElement;
+
+  // per-emotion CRT tint
+  const EMO_COL: Record<EmotionId, string> = {
+    scan: '#5fd08a',
+    suspicious: '#6fb8e0',
+    awe: '#7fd0ff',
+    glee: '#ffd166',
+    love: '#ff9ec7',
+    sad: '#7f9fd0',
+    scared: '#e0705a',
+    angry: '#ff6b5a',
+    worried: '#c0a0e0',
+  };
+
+  // flavor state (reset per board in resetFlavor)
+  let emo: EmotionId = 'scan';
+  let emoHold = 0; // ms — a transient emotion holds until here, then reverts to base
+  let logLines: string[] = [];
+  let evt = 0; // salt for deterministic message picks
+  let logDirty = true;
+  // prev-frame snapshot for edge detection
+  let pCapNode = -1;
+  let pTrips = 0;
+  let pPhase = '';
+  let pLoot = 0;
+
+  const setEmo = (id: EmotionId, holdMs: number): void => {
+    emo = id;
+    emoHold = performance.now() + holdMs;
+  };
+  const pushMsg = (m: string): void => {
+    logLines.push(m);
+    if (logLines.length > 4) logLines.shift();
+    logDirty = true;
+  };
+  const logPick = (list: string[]): void => pushMsg(pick(list, board.seed, evt++));
+  const baseEmo = (): EmotionId =>
+    game.phase === 'WON' ? 'love' : game.phase === 'LOST_CRIT' ? 'angry' : game.phase === 'LOST_SOFT' ? 'sad' : game.tracer ? 'worried' : game.capturing ? 'suspicious' : 'scan';
+
+  function resetFlavor(): void {
+    emo = 'scan';
+    emoHold = 0;
+    logLines = [];
+    evt = 0;
+    logDirty = true;
+    pCapNode = -1;
+    pTrips = 0;
+    pPhase = game.phase;
+    pLoot = 0;
+    pushMsg('uplink established — mapping the subnet');
+    logPick(DEVLOG);
+  }
+
   let board!: Board;
   let game!: TraceGame;
   let mouse: [number, number] | null = null;
@@ -86,6 +162,8 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     game = new TraceGame(board, initial.skill);
     armNuke = false;
     overlay.style.display = 'none';
+    resetFlavor();
+    (window as unknown as { __trace?: TraceGame }).__trace = game; // debug/headless hook
   }
   build(initial.difficulty, initial.seed);
 
@@ -196,6 +274,69 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     lastT = now;
     game.tick(dt);
 
+    // ── flavor events: diff this frame against the last ──────────────────────
+    {
+      const capNode = game.capturing ? game.capturing.node : -1;
+      const detected = game.trips > pTrips;
+
+      // a capture just began → run a check (suspicious)
+      if (pCapNode === -1 && capNode >= 0) {
+        setEmo('suspicious', 900);
+        logPick(DEVLOG);
+      }
+      // a capture just finished (node now owned) → sitrep, and awe on a tough pass
+      if (pCapNode >= 0 && capNode === -1 && game.owner[pCapNode] === 'P') {
+        const nd = board.nodes[pCapNode]!;
+        if (nd.type === 'STORE' && game.loot > pLoot) {
+          setEmo('awe', 1200);
+          logPick(SITREP);
+        } else if (nd.type !== 'REGISTRY' && !detected) {
+          if (pDetect(nd.rating, game.captureLevel) >= 0.4) setEmo('awe', 1500);
+          logPick(SITREP);
+        }
+      }
+      // got made mid-run → the counter-trace wakes (scared)
+      if (detected && game.phase !== 'EXFIL' && game.phase !== 'WON') {
+        setEmo('scared', 1500);
+        logPick(TRACEBACK);
+      }
+      // registry cracked → prize in hand, but the trace is now inbound
+      if (game.phase === 'EXFIL' && pPhase !== 'EXFIL') {
+        setEmo('glee', 1400);
+        pushMsg('SITREP: database exfiltrated — trace inbound, run home');
+      }
+      // terminal states
+      if (game.phase === 'WON' && pPhase !== 'WON') {
+        setEmo('glee', 2600);
+        pushMsg('◆ EXTRACTION COMPLETE — gone before the trace closed');
+      } else if (game.phase === 'LOST_CRIT' && pPhase !== 'LOST_CRIT') {
+        setEmo('angry', 3000);
+        pushMsg('⚠ TRACED — they walked it back to your door');
+      } else if (game.phase === 'LOST_SOFT' && pPhase !== 'LOST_SOFT') {
+        setEmo('sad', 3000);
+        pushMsg('✕ JACKED OUT — connection dropped, run aborted');
+      }
+
+      if (now > emoHold) emo = baseEmo();
+      pCapNode = capNode;
+      pTrips = game.trips;
+      pPhase = game.phase;
+      pLoot = game.loot;
+
+      faceEl.textContent = emotionFace(emo, t);
+      faceEl.style.color = EMO_COL[emo] ?? '#5fd08a';
+      if (logDirty) {
+        logEl.innerHTML = logLines
+          .map((m, i) => {
+            const last = i === logLines.length - 1;
+            const op = (0.45 + 0.55 * ((i + 1) / logLines.length)).toFixed(2);
+            return `<div style="color:${last ? '#7fe0a4' : '#3f9d68'};opacity:${op}">› ${m}</div>`;
+          })
+          .join('');
+        logDirty = false;
+      }
+    }
+
     const hover = mouse ? nearestNode(mouse[0], mouse[1]) : -1;
     const capSet = new Set(game.phase === 'EXFIL' ? game.retreatable() : game.capturable());
 
@@ -304,7 +445,7 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
       window.removeEventListener('resize', resize);
       field.dispose();
       composer.dispose();
-      [prompt, tally, overlay, bar].forEach((n) => n.remove());
+      [prompt, tally, overlay, bar, term].forEach((n) => n.remove());
       renderer.dispose();
     },
   };
