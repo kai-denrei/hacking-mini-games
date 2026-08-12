@@ -2,11 +2,10 @@ import { drawOrb } from './render/thinkingOrbs.ts';
 
 // Landing hub: pick a game from cards. Each card's hero is a live dotted motif
 // from that game's own world (a rotating searching-orb globe for CONSTELLATION,
-// a flowing dotted tube for TUBES) — the point-cloud identity is the preview.
-// Only the two finished, distinct games are offered for now; the number keys
-// still reach the others.
+// a crawling network for TRACE, a flowing dotted tube for HDT) — the point-cloud
+// identity is the preview.
 
-export type GameName = 'constellation' | 'transfer' | 'circuit' | 'shapes' | 'tubes' | 'constellation-orbs';
+export type GameName = 'constellation-orbs' | 'trace' | 'circuit-duel-2';
 
 interface CardSpec {
   game: GameName;
@@ -15,24 +14,33 @@ interface CardSpec {
   desc: string;
   accent: string; // hex
   tint: readonly [number, number, number]; // 0..1 motif ink tint
-  motif: 'globe' | 'tube';
+  motif: 'globe' | 'tube' | 'network';
 }
 
 const CARDS: CardSpec[] = [
   {
-    game: 'constellation',
+    game: 'constellation-orbs',
     slot: '01',
     name: 'CONSTELLATION',
-    desc: 'Orbit a cloud of signal until one hidden angle snaps the scatter into a glyph, then extract it before the sweep.',
+    desc: 'Orbit a cloud of thinking-orbs until one hidden angle snaps the scatter into a glyph, then extract it before the sweep.',
     accent: '#6fe0b8',
     tint: [0.44, 0.88, 0.72],
     motif: 'globe',
   },
   {
-    game: 'tubes',
-    slot: '05',
-    name: 'TUBES',
-    desc: 'Read two live circuits, take the better side, and fire terminals so your light claims the registers — dead stubs waste a pulse.',
+    game: 'trace',
+    slot: '02',
+    name: 'TRACE',
+    desc: 'Capture a path across the network to a registry, then race your own tracer back to the entry before it traces you home.',
+    accent: '#e0b070',
+    tint: [0.95, 0.72, 0.4],
+    motif: 'network',
+  },
+  {
+    game: 'circuit-duel-2',
+    slot: '03',
+    name: 'HDT',
+    desc: 'Read an unpowered circuit, take the better side, and fire pulses so your light claims 7 of 12 registers — dead ends, short-circuits and color-traps waste a pulse.',
     accent: '#8aa0ff',
     tint: [0.58, 0.68, 1.0],
     motif: 'tube',
@@ -68,7 +76,7 @@ export function mountLanding(onPick: (game: GameName) => void): Landing {
 
   const foot = document.createElement('div');
   foot.style.cssText = `font:11px ${mono};letter-spacing:.05em;color:#3f414d;text-align:center`;
-  foot.textContent = 'press 1–5 anytime · more games soon';
+  foot.textContent = 'press 1–3 anytime · more games soon';
   root.appendChild(foot);
 
   interface Motif {
@@ -163,12 +171,58 @@ export function mountLanding(onPick: (game: GameName) => void): Landing {
     }
   }
 
+  // a small crawling network: fixed nodes, faint edges, a packet running an edge
+  function network(ctx: CanvasRenderingContext2D, w: number, h: number, t: number, tint: readonly [number, number, number]): void {
+    const cx = w / 2;
+    const cy = h / 2;
+    const N = 7;
+    const nodes: [number, number][] = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2 + 0.6;
+      const rr = 34 + 10 * Math.sin(i * 2.3);
+      nodes.push([cx + Math.cos(a) * rr * 1.6, cy + Math.sin(a) * rr]);
+    }
+    const edges: [number, number][] = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [0, 3], [2, 5]];
+    const col = (b: number): string => `rgba(${Math.round(210 * tint[0] + 30)},${Math.round(210 * tint[1] + 30)},${Math.round(210 * tint[2] + 30)},${b})`;
+    for (const [a, b] of edges) {
+      const [x1, y1] = nodes[a]!;
+      const [x2, y2] = nodes[b]!;
+      const steps = 8;
+      for (let k = 1; k < steps; k++) {
+        const f = k / steps;
+        ctx.fillStyle = col(0.28);
+        ctx.beginPath();
+        ctx.arc(x1 + (x2 - x1) * f, y1 + (y2 - y1) * f, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // a packet crawling edge 0→3→4 (the "tracer")
+    const path = [nodes[0]!, nodes[3]!, nodes[4]!, nodes[5]!];
+    const seg = (t * 0.5) % (path.length - 1);
+    const si = Math.floor(seg);
+    const f = seg - si;
+    const p0 = path[si]!;
+    const p1 = path[si + 1]!;
+    ctx.fillStyle = col(1);
+    ctx.beginPath();
+    ctx.arc(p0[0] + (p1[0] - p0[0]) * f, p0[1] + (p1[1] - p0[1]) * f, 3, 0, Math.PI * 2);
+    ctx.fill();
+    for (let i = 0; i < N; i++) {
+      const captured = i <= si; // nodes the packet has passed light up
+      ctx.fillStyle = col(captured ? 0.9 : 0.5);
+      ctx.beginPath();
+      ctx.arc(nodes[i]![0], nodes[i]![1], captured ? 2.6 : 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   function frame(m: Motif, t: number): void {
     const w = 258;
     const h = 132;
     m.ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     m.ctx.clearRect(0, 0, w, h);
     if (m.spec.motif === 'globe') drawOrb(m.ctx, 'searching', w / 2, h / 2, 42, t * 1.4, m.spec.tint, 1);
+    else if (m.spec.motif === 'network') network(m.ctx, w, h, t, m.spec.tint);
     else tube(m.ctx, w, h, t, m.spec.tint);
   }
 

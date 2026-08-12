@@ -35,21 +35,8 @@ export const RULES: GameRules[] = [
     note: 'Playable end to end. Still to come: trace-stroke variant, audio, and SKILL/OVERRIDE modifiers.',
   },
   {
-    name: 'TRANSFER',
-    status: 'playable',
-    fantasy:
-      'Your influence device fights a host machine’s processor for control of its 12 registers. Majority wins; you become what you defeat. (Paradroid / Quazatron.)',
-    how: [
-      'Press 2 to play. PLAN: click the left or right wiring layer to take it (the two differ in quality — read before you commit).',
-      'RUN: click your terminals to fire a limited stock of pulses. Each travels its wire and claims (or inverts) central cells; REPEAT guns keep re-claiming.',
-      'Later pulse wins a contested cell — hold some back to overwrite the host late, after its claims land.',
-    ],
-    fail: ['Fail to hold the majority of 12 cells when the timer runs out. (6-6 rematch is still TODO.)'],
-    note: 'Playable MVP: firing, pulses, claims, AI, win/lose. Still to come: 6-6 rematch, richer wire visuals, side-select timer.',
-  },
-  {
     name: 'TRACE',
-    status: 'planned',
+    status: 'playable',
     fantasy:
       'Breach a network at an I/O port and capture a path to the registry before the system’s diagnostic subroutine traces the intrusion back to your entry.',
     how: [
@@ -58,43 +45,6 @@ export const RULES: GameRules[] = [
       'On detection a tracer crawls back toward your entry on per-node countdowns — outrun it or get cut off.',
     ],
     fail: ['Critical: the tracer reaches your entry node. Soft: jack out early, keep nothing.'],
-  },
-  {
-    name: 'CIRCUIT',
-    status: 'playable',
-    fantasy:
-      'The same takeover fight as TRANSFER, but you are inside the board: a live circuit of glowing traces. Light you fire flows through the wiring and claims the cells it reaches.',
-    how: [
-      'Press 3 to play. Same rules as TRANSFER — choose a side, then fire your terminals.',
-      'Each pulse is light travelling the right-angle traces; watch it thread the circuit and light the cell it lands on. Later light wins a contested cell.',
-    ],
-    fail: ['Fail to hold the majority when the timer runs out.'],
-    note: 'Game 3: TRANSFER’s mechanics with an angular, lit-circuit renderer (bloom + light-through-trace).',
-  },
-  {
-    name: 'SHAPES',
-    status: 'playable',
-    fantasy:
-      'The takeover duel as a lattice of thinking solids. The two sides are living primitives — octahedra searching on the left, cubes on the right — and every register you win resolves into your solid, turning like a solved puzzle.',
-    how: [
-      'Press 4 (experimental). Same rules as TRANSFER — choose a side, fire your terminals.',
-      'Your terminals are “searching” primitives; a cell you claim becomes a “solving” one (octahedron if you took the left side, cube if the right).',
-    ],
-    fail: ['Fail to hold the majority when the timer runs out.'],
-    note: 'Game 4: a Braille-Lab Modes × Primitives experiment over TRANSFER’s mechanics.',
-  },
-  {
-    name: 'TUBES',
-    status: 'playable',
-    fantasy:
-      'The takeover duel where you can finally read the wiring. Two circuits of glowing tubes; each terminal fans out through inverters, repeaters and dead-ends to the register strip. Read them, take the better side, spend your pulses well.',
-    how: [
-      'Press 5. PLAN: hover any terminal to light its tubes and preview which cells it reaches (rings coloured by element). Read both sides, then click the better circuit to take it.',
-      'A tube carrying an ◍ inverts the cell it reaches; a ◆ arms a repeat-gun; a ✕ dead-ends and wastes the pulse. A fork is two tubes.',
-      'RUN: fire your terminals; light threads the tubes and claims cells. Later light wins a contested cell.',
-    ],
-    fail: ['Fail to hold the majority when the timer runs out.'],
-    note: 'Game 5: the read-the-circuit model. Elements are derived from the (verified) outcome sim; the deeper 8×4 lane grid with JOIN is a later step.',
   },
   {
     name: 'HDT',

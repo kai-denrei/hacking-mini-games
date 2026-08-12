@@ -1,8 +1,3 @@
-import { mountConstellation } from './games/constellation/view.ts';
-import { mountTransfer } from './games/transfer/view.ts';
-import { mountCircuit } from './games/circuit/view.ts';
-import { mountShapes } from './games/shapes/view.ts';
-import { mountTubes } from './games/tubes/view.ts';
 import { mountConstellationOrbs } from './games/constellation-orbs/view.ts';
 import { mountTrace } from './games/trace/view.ts';
 import { mountCircuitDuel2 } from './games/circuit-duel-2/view.ts';
@@ -12,19 +7,17 @@ import { LADDER, type MatchSpec } from './games/transfer/model.ts';
 import type { TransferGame } from './games/transfer/play.ts';
 import type { Difficulty, Skill } from './engine/session.ts';
 
-// App entry + tiny router. Press 1 = CONSTELLATION, 2 = TRANSFER, 3 = CIRCUIT,
-// 4 = SHAPES, 5 = TUBES, 6 = CONSTELLATION (orbs), 7 = TRACE, 8 = HDT.
+// App entry + tiny router. Press 1 = CONSTELLATION, 2 = TRACE, 3 = HDT.
 // R (or the ⟳ button) reseeds the current game. Dev log mounts once.
 mountDevLog();
 
 const CFG = { difficulty: 2 as Difficulty, skill: 2 as Skill };
-type GameName = 'constellation' | 'transfer' | 'circuit' | 'shapes' | 'tubes' | 'constellation-orbs' | 'trace' | 'circuit-duel-2';
-const DUEL = new Set<GameName>(['transfer', 'circuit', 'shapes', 'tubes', 'circuit-duel-2']);
+type GameName = 'constellation-orbs' | 'trace' | 'circuit-duel-2';
+const DUEL = new Set<GameName>(['circuit-duel-2']);
 
-// The four duel games share the scaling ladder (a class matchup per rung): win a
-// match then reseed to climb; lose (strict, not a tie) then reseed to fall back
-// to the shallow end. Rung persists across duel games so switching renderers
-// keeps your depth.
+// HDT uses the scaling ladder (a class matchup per rung): win a match then
+// reseed to climb; lose (strict, not a tie) then reseed to fall back to the
+// shallow end; a 6–6 deadlock replays the same board.
 let rung = 0;
 
 interface DuelGame {
@@ -48,12 +41,12 @@ function showError(err: unknown): void {
   document.body.appendChild(box);
 }
 
-// URL is <base>N — /1 constellation … /8 HDT (base is '/' in dev, a sub-path
-// like '/hacking-mini-games/' on GitHub Pages).
-const GAMES: GameName[] = ['constellation', 'transfer', 'circuit', 'shapes', 'tubes', 'constellation-orbs', 'trace', 'circuit-duel-2'];
+// URL is <base>N — /1 constellation (orbs) · /2 trace · /3 HDT (base is '/' in
+// dev, a sub-path like '/hacking-mini-games/' on GitHub Pages).
+const GAMES: GameName[] = ['constellation-orbs', 'trace', 'circuit-duel-2'];
 const BASE = import.meta.env.BASE_URL;
 let current: Game | null = null;
-let currentName: GameName = 'constellation';
+let currentName: GameName = 'constellation-orbs';
 let seq = 0;
 
 function freshCanvas(): HTMLCanvasElement {
@@ -75,21 +68,11 @@ function mountGame(name: GameName): void {
   const duel = (seed: string) => ({ spec: LADDER[rung]!, seed, skill: CFG.skill });
   try {
     current =
-      name === 'transfer'
-        ? mountTransfer(canvas, duel('circuit'))
-        : name === 'circuit'
-          ? mountCircuit(canvas, duel('grid'))
-          : name === 'shapes'
-            ? mountShapes(canvas, duel('solids'))
-            : name === 'tubes'
-              ? mountTubes(canvas, duel('wired'))
-              : name === 'circuit-duel-2'
-                ? mountCircuitDuel2(canvas, duel('hdt'))
-                : name === 'constellation-orbs'
-                  ? mountConstellationOrbs(canvas, { ...CFG, seed: 'orbs' })
-                  : name === 'trace'
-                    ? mountTrace(canvas, { ...CFG, seed: 'net' })
-                    : mountConstellation(canvas, { ...CFG, seed: 'aurora' });
+      name === 'circuit-duel-2'
+        ? mountCircuitDuel2(canvas, duel('hdt'))
+        : name === 'trace'
+          ? mountTrace(canvas, { ...CFG, seed: 'net' })
+          : mountConstellationOrbs(canvas, { ...CFG, seed: 'orbs' });
     (window as unknown as { __cx: Game }).__cx = current;
   } catch (err) {
     console.error(err);
