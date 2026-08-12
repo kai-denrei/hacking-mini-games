@@ -122,7 +122,7 @@ const resetBtn = document.createElement('button');
 resetBtn.textContent = '⟳';
 resetBtn.setAttribute('aria-label', 'reset / reseed');
 resetBtn.style.cssText =
-  'position:fixed;top:8px;right:10px;z-index:2147483646;width:44px;height:44px;' +
+  'position:fixed;top:calc(8px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));z-index:2147483646;width:44px;height:44px;' +
   'border-radius:50%;border:1px solid #2c2c38;background:rgba(12,13,20,.6);color:#9a9aa6;' +
   'font:20px/44px ui-monospace,Menlo,monospace;text-align:center;cursor:pointer;' +
   'padding:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation';
@@ -134,7 +134,7 @@ const homeBtn = document.createElement('button');
 homeBtn.textContent = '⌂';
 homeBtn.setAttribute('aria-label', 'back to game picker');
 homeBtn.style.cssText =
-  'position:fixed;top:8px;right:60px;z-index:2147483646;width:44px;height:44px;' +
+  'position:fixed;top:calc(8px + env(safe-area-inset-top));right:calc(60px + env(safe-area-inset-right));z-index:2147483646;width:44px;height:44px;' +
   'border-radius:50%;border:1px solid #2c2c38;background:rgba(12,13,20,.6);color:#9a9aa6;' +
   'font:18px/44px ui-monospace,Menlo,monospace;text-align:center;cursor:pointer;' +
   'padding:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation';
@@ -162,7 +162,7 @@ function goHome(): void {
 // visible: current rung + matchup, and which way the last result moved it.
 const ladderHud = document.createElement('div');
 ladderHud.style.cssText =
-  'position:fixed;top:9px;left:12px;z-index:2147483646;pointer-events:none;' +
+  'position:fixed;top:calc(9px + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));z-index:2147483646;pointer-events:none;' +
   'font:11px/1.5 ui-monospace,Menlo,monospace;color:#8a8a96';
 document.body.appendChild(ladderHud);
 

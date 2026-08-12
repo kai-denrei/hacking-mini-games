@@ -62,10 +62,21 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     document.body.appendChild(e);
     return e;
   };
-  const prompt = mk(`position:fixed;left:50%;top:12px;transform:translateX(-50%);font:12px ${mono};color:#9a9aa6;pointer-events:none;text-align:center`);
-  const tally = mk(`position:fixed;left:12px;bottom:12px;font:11px ${mono};color:#6a6a76;pointer-events:none;line-height:1.5`);
+
+  // Safe-area probe: the PWA renders under the iOS notch / home indicator
+  // (viewport-fit=cover + black-translucent), so read the insets and keep both
+  // chrome and nodes clear of them. Zero on non-notched devices / desktop.
+  const insetProbe = mk('position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)');
+  const insets = (): { t: number; r: number; b: number; l: number } => {
+    const cs = getComputedStyle(insetProbe);
+    return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+  };
+  // hint line sits at the bottom (above the action bar) so it never collides
+  // with the terminal / home / reset chrome crowding the top on mobile
+  const prompt = mk(`position:fixed;left:50%;bottom:calc(58px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,680px);font:12px ${mono};color:#9a9aa6;pointer-events:none;text-align:center;line-height:1.4`);
+  const tally = mk(`position:fixed;left:calc(12px + env(safe-area-inset-left));bottom:calc(12px + env(safe-area-inset-bottom));font:11px ${mono};color:#6a6a76;pointer-events:none;line-height:1.5`);
   const overlay = mk(`position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(5,6,10,.6);font:${mono};text-align:center;pointer-events:none`);
-  const bar = mk('position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;z-index:5');
+  const bar = mk('position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:10px;z-index:5');
   const btn = (label: string): HTMLButtonElement => {
     const b = document.createElement('button');
     b.textContent = label;
@@ -84,17 +95,17 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
   // out sitreps, dev notes, and — once you're made — the counter-trace.
   const term = document.createElement('div');
   term.style.cssText =
-    `position:fixed;left:10px;top:10px;z-index:5;width:clamp(188px,42vw,268px);` +
-    `background:rgba(3,10,6,.82);border:1px solid #1c4a30;border-radius:4px;` +
-    `box-shadow:0 0 14px rgba(20,90,50,.22),inset 0 0 22px rgba(10,40,24,.4);` +
-    `font:10px/1.4 ${mono};color:#5fd08a;overflow:hidden;pointer-events:none`;
+    `position:fixed;left:calc(12px + env(safe-area-inset-left));top:calc(12px + env(safe-area-inset-top));z-index:5;width:clamp(228px,50vw,340px);` +
+    `background:rgba(3,10,6,.82);border:1px solid #1c4a30;border-radius:5px;` +
+    `box-shadow:0 0 16px rgba(20,90,50,.24),inset 0 0 24px rgba(10,40,24,.4);` +
+    `font:11px/1.4 ${mono};color:#5fd08a;overflow:hidden;pointer-events:none`;
   term.innerHTML =
-    `<div style="display:flex;align-items:center;gap:5px;padding:3px 8px;background:rgba(20,60,36,.35);` +
-    `border-bottom:1px solid #17402a;color:#7fe0a4;letter-spacing:.1em;font-size:8.5px">` +
+    `<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(20,60,36,.35);` +
+    `border-bottom:1px solid #17402a;color:#7fe0a4;letter-spacing:.1em;font-size:9.5px">` +
     `<span style="color:#2f7a4c">●●●</span>&nbsp;trace.sh — root@breach</div>` +
-    `<pre class="cx-face" style="margin:0;padding:9px 0 5px;text-align:center;font-size:19px;line-height:.92;` +
-    `letter-spacing:3px;text-shadow:0 0 9px currentColor;white-space:pre"></pre>` +
-    `<div class="cx-log" style="padding:4px 8px 7px;font-size:8.5px;line-height:1.5;min-height:46px;` +
+    `<pre class="cx-face" style="margin:0;padding:12px 0 7px;text-align:center;font-size:27px;line-height:.9;` +
+    `letter-spacing:5px;text-shadow:0 0 11px currentColor;white-space:pre"></pre>` +
+    `<div class="cx-log" style="padding:5px 10px 8px;font-size:9.5px;line-height:1.5;height:62px;overflow:hidden;` +
     `border-top:1px solid #123420;color:#3f9d68"></div>`;
   document.body.appendChild(term);
   const faceEl = term.querySelector('.cx-face') as HTMLPreElement;
@@ -157,12 +168,84 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
   let mouse: [number, number] | null = null;
   let armNuke = false;
 
+  // Layout fit: node positions are generated in ~[-0.95,0.95] and would spill
+  // off narrow (portrait) viewports or sit under the terminal. `fit` maps the
+  // graph's bounding box into the largest on-screen rectangle that clears both
+  // the screen-edge margins and the terminal footprint. Everything is drawn and
+  // hit-tested through P[] (transformed positions) and scaled by `scl`.
+  let P: [number, number][] = [];
+  let scl = 1;
+  const PP = (i: number): [number, number] => P[i] ?? board.nodes[i]!.pos;
+
+  function fit(): void {
+    if (!board) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const cw = camera.right - camera.left;
+    const ch = camera.top - camera.bottom;
+    const sxToWx = (sx: number): number => camera.left + (sx / w) * cw;
+    const syToWy = (sy: number): number => camera.top - (sy / h) * ch;
+
+    // safe viewport in world units (screen minus HUD margins + notch insets:
+    // home/reset top, hint line + action bar bottom, side gutters)
+    const ins = insets();
+    const vx0 = sxToWx(14 + ins.l);
+    const vx1 = sxToWx(w - 14 - ins.r);
+    const vy1 = syToWy(52 + ins.t);
+    const vy0 = syToWy(h - 108 - ins.b); // clears the bottom hint line + action bar
+
+    // terminal footprint (world) with a small gap so glow doesn't kiss the panel
+    const tr = term.getBoundingClientRect();
+    const tRight = sxToWx(tr.right + 12);
+    const tBottom = syToWy(tr.bottom + 12);
+
+    // two rects that clear the top-left panel: one to its right, one below it
+    const cand = [
+      { x0: Math.max(vx0, tRight), x1: vx1, y0: vy0, y1: vy1 },
+      { x0: vx0, x1: vx1, y0: vy0, y1: Math.min(vy1, tBottom) },
+    ];
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const n of board.nodes) {
+      minX = Math.min(minX, n.pos[0]);
+      maxX = Math.max(maxX, n.pos[0]);
+      minY = Math.min(minY, n.pos[1]);
+      maxY = Math.max(maxY, n.pos[1]);
+    }
+    const bw = Math.max(1e-3, maxX - minX);
+    const bh = Math.max(1e-3, maxY - minY);
+    const bcx = (minX + maxX) / 2;
+    const bcy = (minY + maxY) / 2;
+    const RW = 0.09; // world pad reserved for node glow + silhouette rings
+
+    let best: { s: number; R: (typeof cand)[number] } | null = null;
+    for (const R of [...cand, { x0: vx0, x1: vx1, y0: vy0, y1: vy1 }]) {
+      const rw = R.x1 - R.x0 - 2 * RW;
+      const rh = R.y1 - R.y0 - 2 * RW;
+      if (rw <= 0 || rh <= 0) continue;
+      const s = Math.min(rw / bw, rh / bh);
+      if (!best || s > best.s) best = { s, R };
+    }
+    if (!best) return;
+    scl = best.s;
+    const rcx = (best.R.x0 + best.R.x1) / 2;
+    const rcy = (best.R.y0 + best.R.y1) / 2;
+    const ox = rcx - scl * bcx;
+    const oy = rcy - scl * bcy;
+    P = board.nodes.map((n) => [ox + scl * n.pos[0], oy + scl * n.pos[1]]);
+    (window as unknown as { __traceFit?: unknown }).__traceFit = { scl, P, cam: [camera.left, camera.right, camera.top, camera.bottom] }; // headless-verify hook
+  }
+
   function build(difficulty: Difficulty, seed: string): void {
     board = generateBoard(difficulty, seed);
     game = new TraceGame(board, initial.skill);
     armNuke = false;
     overlay.style.display = 'none';
     resetFlavor();
+    fit();
     (window as unknown as { __trace?: TraceGame }).__trace = game; // debug/headless hook
   }
   build(initial.difficulty, initial.seed);
@@ -178,6 +261,7 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     camera.left = -HALF * a;
     camera.right = HALF * a;
     camera.updateProjectionMatrix();
+    fit();
   }
   window.addEventListener('resize', resize);
   resize();
@@ -190,7 +274,8 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     let best = -1;
     let bd = within * within;
     for (const n of board.nodes) {
-      const d = (n.pos[0] - wx) ** 2 + (n.pos[1] - wy) ** 2;
+      const q = PP(n.id);
+      const d = (q[0] - wx) ** 2 + (q[1] - wy) ** 2;
       if (d < bd) {
         bd = d;
         best = n.id;
@@ -344,14 +429,15 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
 
     // edges
     for (const e of board.edges) {
-      const a = board.nodes[e.a]!.pos;
-      const b = board.nodes[e.b]!.pos;
+      const a = PP(e.a);
+      const b = PP(e.b);
       const lit = game.owner[e.a] === 'P' && game.owner[e.b] === 'P';
       edgeDots(a, b, lit ? C.player! : C.dim!, lit ? 0.5 : 0.32, e.oneWay, t);
     }
 
     // nodes
     for (const n of board.nodes) {
+      const q = PP(n.id);
       const owned = game.owner[n.id] === 'P';
       const base = typeColor(n.type);
       const isTracer = game.tracer && game.tracer.node === n.id;
@@ -361,54 +447,55 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
       const hovered = hover === n.id && canAct;
       const pulse = canAct ? 0.85 + 0.15 * Math.sin(now / 220) : 1;
       const bright = (owned ? 1.15 : n.type === 'REGISTRY' || n.type === 'ENTRY' ? 1.0 : 0.7) * pulse * (hovered ? 1.5 : 1);
-      const spread = 0.02 + 0.006 * n.rating;
-      dotCluster(n.pos[0], n.pos[1], hovered ? mix(col, C.white!, 0.4) : col, 3 + n.rating * 2, spread, 3 + n.rating * 0.5, bright);
+      const spread = (0.02 + 0.006 * n.rating) * scl;
+      dotCluster(q[0], q[1], hovered ? mix(col, C.white!, 0.4) : col, 3 + n.rating * 2, spread, 3 + n.rating * 0.5, bright);
 
       // type silhouette
-      if (n.type === 'REGISTRY') ring(n.pos[0], n.pos[1], 0.055, C.registry!, 12, 2.4, 1, now / 600);
-      else if (n.type === 'ENTRY') ring(n.pos[0], n.pos[1], 0.05, C.entry!, 10, 2.2, 1);
-      else if (n.type === 'STORE') diamond(n.pos[0], n.pos[1], 0.05, C.store!, owned ? 0.6 : 1);
-      else if (n.type === 'ALARM') xMark(n.pos[0], n.pos[1], 0.05, C.alarm!);
-      else if (n.type === 'SPAM') ring(n.pos[0], n.pos[1], 0.04, C.spam!, 6, 2.2, 1, now / 300);
-      if (game.fortified.has(n.id)) ring(n.pos[0], n.pos[1], 0.07, C.player!, 8, 2, 0.7);
+      if (n.type === 'REGISTRY') ring(q[0], q[1], 0.055 * scl, C.registry!, 12, 2.4, 1, now / 600);
+      else if (n.type === 'ENTRY') ring(q[0], q[1], 0.05 * scl, C.entry!, 10, 2.2, 1);
+      else if (n.type === 'STORE') diamond(q[0], q[1], 0.05 * scl, C.store!, owned ? 0.6 : 1);
+      else if (n.type === 'ALARM') xMark(q[0], q[1], 0.05 * scl, C.alarm!);
+      else if (n.type === 'SPAM') ring(q[0], q[1], 0.04 * scl, C.spam!, 6, 2.2, 1, now / 300);
+      if (game.fortified.has(n.id)) ring(q[0], q[1], 0.07 * scl, C.player!, 8, 2, 0.7);
     }
 
     // capture-in-progress ring
     if (game.capturing) {
-      const n = board.nodes[game.capturing.node]!;
+      const q = PP(game.capturing.node);
       const f = game.capturing.elapsed / game.capturing.total;
       const seg = Math.round(16 * f);
       for (let k = 0; k < seg; k++) {
         const a = -Math.PI / 2 + (k / 16) * Math.PI * 2;
-        field.dot(n.pos[0] + Math.cos(a) * 0.065, n.pos[1] + Math.sin(a) * 0.065, C.player![0], C.player![1], C.player![2], 3, 0.95);
+        field.dot(q[0] + Math.cos(a) * 0.065 * scl, q[1] + Math.sin(a) * 0.065 * scl, C.player![0], C.player![1], C.player![2], 3, 0.95);
       }
     }
 
     // tracer packet + countdown ring on its next node
     if (game.tracer) {
-      const cur = board.nodes[game.tracer.node]!.pos;
-      const nx = board.nodes[game.tracer.next]!.pos;
+      const cur = PP(game.tracer.node);
+      const nx = PP(game.tracer.next);
       const p = 1 - Math.max(0, Math.min(1, game.tracer.countdown / (board.params.tracerBase || 1)));
       const hx = cur[0] + (nx[0] - cur[0]) * p;
       const hy = cur[1] + (nx[1] - cur[1]) * p;
       const fl = 0.7 + 0.3 * Math.sin(now / 90);
       field.dot(hx, hy, C.tracer![0] * fl, C.tracer![1] * fl, C.tracer![2] * fl, 9);
-      ring(nx[0], nx[1], 0.05 * (1 - p) + 0.02, C.tracer!, 10, 2.2, fl);
+      ring(nx[0], nx[1], (0.05 * (1 - p) + 0.02) * scl, C.tracer!, 10, 2.2, fl);
     }
 
     // player token in EXFIL
     if (game.phase === 'EXFIL') {
-      let px = board.nodes[game.playerAt]!.pos[0];
-      let py = board.nodes[game.playerAt]!.pos[1];
+      const at = PP(game.playerAt);
+      let px = at[0];
+      let py = at[1];
       if (game.moving) {
-        const to = board.nodes[game.moving.to]!.pos;
+        const to = PP(game.moving.to);
         const f = game.moving.elapsed / game.moving.total;
         px += (to[0] - px) * f;
         py += (to[1] - py) * f;
       }
       const fl = 0.8 + 0.2 * Math.sin(now / 120);
       field.dot(px, py, C.white![0] * fl, C.white![1] * fl, C.white![2] * fl, 10);
-      ring(px, py, 0.03, C.player!, 8, 2.4, fl);
+      ring(px, py, 0.03 * scl, C.player!, 8, 2.4, fl);
     }
 
     field.commit(renderer.getPixelRatio());
@@ -445,7 +532,7 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
       window.removeEventListener('resize', resize);
       field.dispose();
       composer.dispose();
-      [prompt, tally, overlay, bar, term].forEach((n) => n.remove());
+      [prompt, tally, overlay, bar, term, insetProbe].forEach((n) => n.remove());
       renderer.dispose();
     },
   };
