@@ -69,12 +69,21 @@ export function simulate(
   emit(eLayer, eSchedule, eBudget, 'E');
 
   events.sort((a, b) => a.time - b.time || a.seq - b.seq);
+  const locked = new Set<number>();
   for (const ev of events) {
-    if (ev.kind === 'CLAIM') owners[ev.cell] = ev.owner;
-    else if (ev.kind === 'INVERT') {
-      const cur = owners[ev.cell]!;
-      owners[ev.cell] = cur === 'NEUTRAL' ? ev.owner : cur === 'P' ? 'E' : 'P';
-    }
+    if (ev.kind === 'DEAD' || ev.kind === 'SHORT') continue; // absorbed / short-circuited
+    if (locked.has(ev.cell)) continue; // locked cells are final
+    const self: Owner = ev.owner;
+    const opp: Owner = self === 'P' ? 'E' : 'P';
+    const cur = owners[ev.cell]!;
+    if (ev.kind === 'CLAIM') owners[ev.cell] = self;
+    else if (ev.kind === 'LOCK') {
+      owners[ev.cell] = self;
+      locked.add(ev.cell);
+    } else if (ev.kind === 'FLIP') owners[ev.cell] = opp; // filled transformer: feeds the enemy
+    else if (ev.kind === 'CONVERT') owners[ev.cell] = cur === opp ? 'NEUTRAL' : cur === 'NEUTRAL' ? self : self; // advance-only
+    else if (ev.kind === 'INVERT') owners[ev.cell] = cur === 'NEUTRAL' ? self : cur === 'P' ? 'E' : 'P'; // legacy
+    // REPEAT was already expanded to CLAIM events in emit(); no default needed
   }
 
   let p = 0;

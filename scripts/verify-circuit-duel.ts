@@ -71,3 +71,13 @@ eq(outcomeFor(8), 'WON', '8→WON');
 eq(outcomeFor(6), 'DEADLOCK', '6→DEADLOCK');
 eq(outcomeFor(5), 'LOST', '5→LOST');
 console.log('task3 OK');
+
+import { simulate, aiSchedule, playerFireLate } from '../src/games/transfer/simulate.ts';
+{
+  const b = stubBoard('FLIP');
+  const sched = aiSchedule('naive', b.right, 0, b.params.tMatch, (() => 0.5) as never);
+  const r = simulate(b.left, b.right, playerFireLate(b.left, 1, b.params.tMatch), sched, 1, 0, b.params.tMatch);
+  // player fired a FLIP → their pulse claims cell 0 for E, so player count for cell 0 = 0, e = 1
+  eq(r.e >= 1, true, 'sim FLIP feeds E');
+}
+console.log('task5 OK');
