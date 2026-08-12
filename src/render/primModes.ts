@@ -393,7 +393,7 @@ export interface EnemyTheme {
   dim: readonly [number, number, number]; // unlit tube colour
 }
 export const ENEMY_THEMES: readonly EnemyTheme[] = [
-  { key: 'white-octa', label: 'White Octahedron', shape: 'octa', terminal: 'searching', node: 'solving', color: [0.82, 0.88, 1.0], dim: [0.19, 0.21, 0.27] },
+  { key: 'amber-octa', label: 'Amber Octahedron', shape: 'octa', terminal: 'searching', node: 'solving', color: [1.0, 0.72, 0.26], dim: [0.28, 0.2, 0.08] },
   { key: 'purple-pyramid', label: 'Purple Pyramid', shape: 'pyramid', terminal: 'searching', node: 'connecting', color: [0.7, 0.5, 1.0], dim: [0.18, 0.14, 0.28] },
   { key: 'turquoise-torus', label: 'Turquoise Torus', shape: 'torus', terminal: 'searching', node: 'composing', color: [0.3, 0.86, 0.82], dim: [0.12, 0.24, 0.24] },
   { key: 'darkred-teardrop', label: 'Dark Red Teardrop', shape: 'teardrop', terminal: 'wave', node: 'orbit', color: [0.86, 0.32, 0.3], dim: [0.26, 0.11, 0.11] },

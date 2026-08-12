@@ -22,17 +22,17 @@ import type { Skill } from '../../engine/session.ts';
 // dim gray, no owner colour, no flowing current — a schematic you read. Element
 // glyphs (from src/render/circuitElements.ts) mark each wire: CLAIM / SPLIT /
 // LOCK / JOINER / DEAD / SHORT / FLIP / CONVERT. Once you choose a side the board
-// switches ON — your side green, the host themed, current flowing. Mechanics
+// switches ON — your side white, the host in its theme colour, current flowing. Mechanics
 // reuse TRANSFER; the readable, full-vocabulary circuit is the point.
 
 const C = {
   cellN: [0.22, 0.22, 0.28],
-  p: [0.34, 0.9, 0.66],
-  e: [0.82, 0.88, 1.0], // host = white (was red)
-  dimP: [0.1, 0.22, 0.18],
+  p: [0.88, 0.92, 1.0], // you = white
+  e: [0.82, 0.88, 1.0], // legacy host base (host now uses its per-board enemy theme colour)
+  dimP: [0.18, 0.2, 0.24],
   dimE: [0.19, 0.21, 0.27],
   dimN: [0.14, 0.14, 0.18],
-  litP: [0.5, 1.1, 0.85],
+  litP: [1.1, 1.12, 1.2], // your lit pulse = bright white
   litE: [1.05, 1.08, 1.16],
   dead: [0.7, 0.34, 0.32],
   white: [1, 1, 1],
@@ -43,17 +43,12 @@ const C = {
 type RGB = readonly number[] | number[];
 const mix = (a: RGB, b: RGB, t: number): [number, number, number] => [a[0]! + (b[0]! - a[0]!) * t, a[1]! + (b[1]! - a[1]!) * t, a[2]! + (b[2]! - a[2]!) * t];
 const scale = (a: RGB, k: number): [number, number, number] => [a[0]! * k, a[1]! * k, a[2]! * k];
-// Three shades PER SIDE so overlapping routes read apart without mixing colours:
-// the green side (you) cycles greens; the white side (host) cycles whites.
-const GREEN_SHADES: readonly RGB[] = [
-  [0.34, 0.9, 0.62], // base green
-  [0.52, 1.0, 0.8], // bright green
-  [0.24, 0.7, 0.48], // deep green
-];
-const WHITE_SHADES: readonly RGB[] = [
-  [0.82, 0.88, 1.0], // cool white
-  [0.98, 0.98, 1.0], // bright white
-  [0.64, 0.72, 0.9], // deep white
+// Three white shades for YOUR side so overlapping lanes read apart without
+// mixing hues; the host cycles tones of its per-board enemy theme colour.
+const PLAYER_SHADES: readonly RGB[] = [
+  [0.86, 0.9, 1.0], // cool white
+  [1.0, 1.0, 1.0], // bright white
+  [0.68, 0.74, 0.92], // deep white
 ];
 const timerColor = (f: number): string => {
   const T = [93, 202, 165];
@@ -341,7 +336,7 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
     for (const r of routes) {
       const role = game.playerSide ? (r.side === game.playerSide ? 'P' : 'E') : 'N';
       // OFF (PLAN): every tube is a single dim gray, no owner colour, no flow.
-      // ON: your side green, host themed, neutral white — per-terminal tone keeps
+      // ON: your side white, host in its theme colour — per-terminal tone keeps
       // overlapping lanes distinct.
       let dim: RGB;
       let flow: RGB;
@@ -353,9 +348,8 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
         dim = scale(enemy.dim, tone);
         flow = scale(enemy.color, tone);
       } else {
-        const isGreen = role === 'P' || (role === 'N' && r.side === 'left');
-        const fam = isGreen ? GREEN_SHADES : WHITE_SHADES;
-        const sh = fam[r.term % fam.length]!;
+        // your side (role 'P') — white; role 'N' only occurs in PLAN (gray anyway)
+        const sh = PLAYER_SHADES[r.term % PLAYER_SHADES.length]!;
         dim = scale(sh, role === 'N' ? 0.24 : 0.2);
         flow = sh;
       }
@@ -454,6 +448,9 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
     const ownerSide = (o: Owner): Side | null => (o === 'P' ? game.playerSide : o === 'E' ? enemySide : null);
     const previewCells = new Map<number, OutcomeKind>();
     if (previewing) for (const r of routes) if (r.side === hoverSide && r.term === hoverTerm && r.kind !== 'DEAD') previewCells.set(r.cell, r.kind);
+    // Grow terminals + center nodes on tall/portrait (mobile) viewports so they
+    // read as solids, not plain dots, on small screens.
+    const grow = Math.min(1.5, 0.92 + 0.16 * vGain());
     for (let i = 0; i < 12; i++) {
       const [x, y] = cellPos(i);
       const owner = game.owners[i]!;
@@ -462,23 +459,23 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
       if (oside && owner === 'E') {
         // host-captured node: the enemy theme's node mode/shape/colour
         const col = mix(enemy.color, C.white, flash * 0.5);
-        drawMode(modeDots(enemy.node, enemy.shape, nowSec + i * 0.5), x, y, 0.042, col, 0.95 + flash);
+        drawMode(modeDots(enemy.node, enemy.shape, nowSec + i * 0.5), x, y, 0.052 * grow, col, 0.95 + flash);
       } else if (oside) {
         const shape: Shape = oside === 'left' ? 'octa' : 'cube';
         const col = mix(C.p, C.white, flash * 0.6);
-        drawPrim(solving(shape, nowSec + i * 0.5), x, y, 0.04, col, 0.95 + flash);
+        drawPrim(solving(shape, nowSec + i * 0.5), x, y, 0.05 * grow, col, 0.95 + flash);
       } else {
-        const s = 0.026;
+        const s = 0.03 * grow;
         const col = mix(C.cellN, C.white, flash * 0.7);
-        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) field.dot(x + dx * s, y + dy * s, col[0]!, col[1]!, col[2]!, 4.5);
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) field.dot(x + dx * s, y + dy * s, col[0]!, col[1]!, col[2]!, 5);
       }
       const pk = previewCells.get(i);
-      if (pk) ring(x, y, 0.058, glyphKindColor(pk), 3, 0.9);
+      if (pk) ring(x, y, 0.066 * grow, glyphKindColor(pk), 3, 0.9);
     }
 
-    // terminals — searching primitives (octahedra left, cubes right). Grow a
-    // touch on tall/portrait viewports so they don't read as plain dots.
-    const termS = 0.05 * Math.min(1.45, 0.86 + 0.14 * vGain());
+    // terminals — searching primitives (octahedra left, cubes right), grown for
+    // mobile legibility.
+    const termS = 0.064 * grow;
     for (const side of ['left', 'right'] as Side[]) {
       const shape: Shape = side === 'left' ? 'octa' : 'cube';
       const role = game.playerSide ? (side === game.playerSide ? 'P' : 'E') : 'N';
