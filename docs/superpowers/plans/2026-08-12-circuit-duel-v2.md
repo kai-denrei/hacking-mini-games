@@ -548,7 +548,7 @@ git commit -m "Circuit v2: renderer with OFF/ON activation + full element glyphs
   - `import { mountCircuitDuel2 } from './games/circuit-duel-2/view.ts';`
   - Add `'circuit-duel-2'` to `GameName` and to the end of `GAMES` (→ game 8, `/8`, key 8).
   - Add `'circuit-duel-2'` to the `DUEL` set (so the ladder applies).
-  - In `mountGame`, add a branch before the constellation fallback: `name === 'circuit-duel-2' ? mountCircuitDuel2(canvas, duel('breaker'))`.
+  - In `mountGame`, add a branch before the constellation fallback: `name === 'circuit-duel-2' ? mountCircuitDuel2(canvas, duel('hdt'))`.
   - Update the comment listing the keys.
 
 - [ ] **Step 2: Verify** — `npx tsc --noEmit` passes; headless screenshot `/8` loads; pressing `8` mounts it; the ladder HUD shows (it's a duel). No console errors.
@@ -573,7 +573,7 @@ git commit -m "Circuit v2: wire as game #8 (duel ladder applies)"
 
 - [ ] **Step 1: Read `panel.ts`** to see how the Rules tab renders a `GameRules` (how `how`/`fail` lists become DOM). Note the container element and styling helpers.
 
-- [ ] **Step 2: Implement `rules.ts`** — add `glossary?` to `GameRules`; add the game #8 entry (`name: 'BREAKER'` or agreed name, `status: 'playable'`), with `glossary` built from `ELEMENT_INFO` (import it). Include a `how`/`fail`/`note` describing OFF→ON and the 7/6/≤5 rule.
+- [ ] **Step 2: Implement `rules.ts`** — add `glossary?` to `GameRules`; add the game #8 entry (`name: 'HDT'` (HanDouTai / 半導体 — semiconductor), `status: 'playable'`), with `glossary` built from `ELEMENT_INFO` (import it). Include a `how`/`fail`/`note` describing OFF→ON and the 7/6/≤5 rule.
 
 - [ ] **Step 3: Implement `panel.ts`** — when a rules entry has `glossary`, render a grid: one row per element = a small `<canvas>` (≈40×40, DPR-scaled) that paints `elementGlyphDots(kind, 0.7)` as filled arcs (map each `GlyphDot` to `ctx.arc`, color `col`, alpha `a`), next to `name` + `meaning` + a `tag` chip (good=green, bad=red, tool=amber). Respect `prefers-reduced-motion` (static frame — it already is).
 
@@ -612,4 +612,4 @@ git add -A && git commit -m "Circuit v2: end-to-end verification pass" && git pu
 
 - **Spec coverage:** element vocabulary (Tasks 1,2,7,8), joiner (Task 6,8), OFF/ON (Task 8), 7/6/≤5 + deadlock (Tasks 3,4,8), extend-not-fork with legacy intact (Tasks 1–5 superset + Task 4), keep-identity renderer (Task 8), generation deception + solvability (Task 6), visual glossary (Tasks 7,10), wiring as #8 with ladder (Task 9). All covered.
 - **Deferred to execution:** exact glyph dot layouts (Task 7 Step 3) and renderer glyph placement (Task 8 Step 2) are visual-iteration steps, not fixed code — that is intended; they carry a concrete verification (screenshot) rather than an assertion.
-- **Naming:** the game key string is `'circuit-duel-2'`; the display name shown to players is decided in Task 10 (placeholder BREAKER) — confirm the name before Task 10.
+- **Naming:** the game key string is `'circuit-duel-2'`; the display name shown to players is decided in Task 10 = **HDT** (HanDouTai / 半導体). Display name HDT; internal game key `circuit-duel-2`.
