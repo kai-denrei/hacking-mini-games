@@ -12,15 +12,18 @@ import { layerOf, type Board, type OutcomeKind, type Owner, type MatchSpec } fro
 import { cellPos, termPos, setVerticalGain, gainFor, vGain, type Side } from '../transfer/layout.ts';
 import { traceDots, type TraceDot } from '../circuit/route.ts';
 import { drawTube } from '../../render/tubeFlow.ts';
+import { elementGlyphDots, ELEMENT_INFO, type GlyphKind } from '../../render/circuitElements.ts';
 import type { Skill } from '../../engine/session.ts';
 
-// TUBES (game 5) — the read-the-circuit model. Wires are thin dotted tubes (a
-// cut-and-straightened torus: a lit round core with dim walls). Every terminal's
-// fan-out is legible: forks (SPLIT) are two tubes, and each tube carries a
-// visible element — an INVERT ring, a REPEAT node, or a DEAD stub that never
-// reaches a cell. Hover a terminal to preview its reach. Reading the two circuits
-// to pick the better side, and to avoid dead terminals, is the skill.
-// Mechanics reuse TRANSFER; the readable circuit is the point.
+// CIRCUIT DUEL 2 (game #8, "HDT") — the read-the-circuit model with the full
+// element vocabulary and an OFF→ON activation beat. Wires are the shared
+// "working torus" tubes (src/render/tubeFlow.ts). Before you take a side
+// (game.phase === 'PLAN') the whole board is UNPOWERED: every tube is a single
+// dim gray, no owner colour, no flowing current — a schematic you read. Element
+// glyphs (from src/render/circuitElements.ts) mark each wire: CLAIM / SPLIT /
+// LOCK / JOINER / DEAD / SHORT / FLIP / CONVERT. Once you choose a side the board
+// switches ON — your side green, the host themed, current flowing. Mechanics
+// reuse TRANSFER; the readable, full-vocabulary circuit is the point.
 
 const C = {
   cellN: [0.22, 0.22, 0.28],
@@ -31,10 +34,11 @@ const C = {
   dimN: [0.14, 0.14, 0.18],
   litP: [0.5, 1.1, 0.85],
   litE: [1.05, 1.08, 1.16],
-  invert: [0.62, 0.5, 1.0],
-  repeat: [1.0, 0.82, 0.4],
   dead: [0.7, 0.34, 0.32],
   white: [1, 1, 1],
+  // OFF/PLAN state — a single dim gray for every unpowered tube (no owner tone)
+  offDim: [0.16, 0.17, 0.2],
+  offGlyph: [0.42, 0.44, 0.5],
 } as const;
 type RGB = readonly number[] | number[];
 const mix = (a: RGB, b: RGB, t: number): [number, number, number] => [a[0]! + (b[0]! - a[0]!) * t, a[1]! + (b[1]! - a[1]!) * t, a[2]! + (b[2]! - a[2]!) * t];
@@ -58,7 +62,35 @@ const timerColor = (f: number): string => {
   const m = (x: number[], y: number[], t: number) => `rgb(${Math.round(x[0]! + (y[0]! - x[0]!) * t)},${Math.round(x[1]! + (y[1]! - x[1]!) * t)},${Math.round(x[2]! + (y[2]! - x[2]!) * t)})`;
   return f > 0.5 ? m(T, A, (1 - f) / 0.5) : m(A, R, Math.max(0, (0.5 - f) / 0.5));
 };
-const kindColor = (k: OutcomeKind): RGB => (k === 'INVERT' ? C.invert : k === 'REPEAT' ? C.repeat : k === 'DEAD' ? C.dead : C.white);
+// Map the mechanical OutcomeKind → the visual GlyphKind vocabulary. INVERT is a
+// legacy kind that full-vocabulary generation mostly replaces; treat it as
+// CONVERT. REPEAT is a claim-gun — show it as a CLAIM (there is no REPEAT glyph).
+const glyphForKind = (k: OutcomeKind): GlyphKind => {
+  switch (k) {
+    case 'CLAIM':
+      return 'CLAIM';
+    case 'LOCK':
+      return 'LOCK';
+    case 'DEAD':
+      return 'DEAD';
+    case 'SHORT':
+      return 'SHORT';
+    case 'FLIP':
+      return 'FLIP';
+    case 'CONVERT':
+      return 'CONVERT';
+    case 'REPEAT':
+      return 'CLAIM';
+    case 'INVERT':
+      return 'CONVERT';
+    default:
+      return 'CLAIM';
+  }
+};
+// where along the tube each element sits (dead stubs read earlier, at 0.66)
+const glyphU = (k: OutcomeKind): number => (k === 'DEAD' ? 0.66 : 0.5);
+// SHORT: the working current dies before the cell (visible stop at u≈0.55)
+const endUForKind = (k: OutcomeKind): number => (k === 'DEAD' ? 0.66 : k === 'SHORT' ? 0.55 : 1);
 
 export interface Mounted {
   regenerate(spec: MatchSpec, seed: string): void;
@@ -74,9 +106,12 @@ interface Route {
   cell: number;
   kind: OutcomeKind;
   dots: TraceDot[];
+  /** this terminal has ≥2 outcomes — draw a SPLIT fork on the primary route */
+  fork: boolean;
+  primary: boolean;
 }
 
-export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec; seed: string; skill: Skill }): Mounted {
+export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: MatchSpec; seed: string; skill: Skill }): Mounted {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x05060a, 1);
@@ -118,13 +153,25 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
   const prompt = mk(`position:fixed;left:50%;top:56px;transform:translateX(-50%);font:12px ${monoF};color:#9a9aa6;pointer-events:none;text-align:center`);
   const tally = mk(`position:fixed;left:12px;bottom:12px;font:11px ${monoF};color:#55555f;pointer-events:none`);
   const legend = mk(`position:fixed;right:12px;bottom:12px;font:11px ${monoF};color:#6a6a76;pointer-events:none;text-align:right`);
-  legend.innerHTML = '<span style="color:#9e80ff">◍ invert</span> · <span style="color:#ffd166">◆ repeat</span> · <span style="color:#b35754">✕ dead</span>';
+  // Name the visible elements from the shared ELEMENT_INFO source of truth.
+  const glyphColorCss: Record<GlyphKind, string> = {
+    CLAIM: '#66f0b0',
+    SPLIT: '#66f0b0',
+    LOCK: '#ffd166',
+    JOINER: '#f0c766',
+    DEAD: '#f26660',
+    SHORT: '#ff9a4d',
+    FLIP: '#f26660',
+    CONVERT: '#f0c766',
+  };
+  legend.innerHTML = ELEMENT_INFO.map((e) => `<span style="color:${glyphColorCss[e.kind]}">${e.name.toLowerCase()}</span>`).join(' · ');
   const overlay = mk(`position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(5,6,10,.55);font:${monoF};text-align:center;pointer-events:none`);
 
   let board!: Board;
   let game!: TransferGame;
   let routes: Route[] = [];
   let routeMap = new Map<string, TraceDot[]>();
+  let joiners: [number, number][] = [];
   let mouseWorld: [number, number] | null = null;
   // The host (enemy) gets a random shape/mode/colour theme each board, for variety.
   let enemy: EnemyTheme = pickEnemyTheme(initial.seed);
@@ -138,18 +185,20 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     routeMap = new Map();
     for (const side of ['left', 'right'] as Side[]) {
       layerOf(board, side).terminals.forEach((t, term) => {
-        for (const o of t.outcomes) {
+        const fork = t.outcomes.length >= 2;
+        t.outcomes.forEach((o, oi) => {
           const dots = traceDots(side, term, o.cell);
-          routes.push({ side, term, cell: o.cell, kind: o.kind, dots });
+          routes.push({ side, term, cell: o.cell, kind: o.kind, dots, fork, primary: oi === 0 });
           routeMap.set(`${side}:${term}:${o.cell}`, dots);
-        }
+        });
       });
     }
   }
   function build(spec: MatchSpec, seed: string): void {
-    board = generateBoard(spec, seed);
+    board = generateBoard(spec, seed, { elements: 'full' });
     game = new TransferGame(board);
     enemy = pickEnemyTheme(seed);
+    joiners = board.joiners ?? [];
     buildRoutes();
     overlay.style.display = 'none';
   }
@@ -232,10 +281,14 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
       field.dot(x + Math.cos(a) * r, y + Math.sin(a) * r, col[0]! * b, col[1]! * b, col[2]! * b, size, 0.9);
     }
   };
-  const xMark = (x: number, y: number, r: number, col: RGB, b: number): void => {
-    for (let k = -2; k <= 2; k++) {
-      field.dot(x + k * r, y + k * r, col[0]! * b, col[1]! * b, col[2]! * b, 3, 0.9);
-      field.dot(x + k * r, y - k * r, col[0]! * b, col[1]! * b, col[2]! * b, 3, 0.9);
+  // Paint one element glyph (from circuitElements) at a tube point. `tint` is an
+  // optional override colour (used to gray glyphs while the board is unpowered);
+  // otherwise each GlyphDot keeps its own semantic colour.
+  const drawGlyph = (kind: GlyphKind, gx: number, gy: number, nowSec: number, glow: number, dotScale: number, tint?: RGB): void => {
+    for (const g of elementGlyphDots(kind, nowSec)) {
+      const col = tint ?? g.col;
+      const b = glow * g.a;
+      field.dot(gx + g.x * dotScale, gy + g.y * dotScale, col[0]! * b, col[1]! * b, col[2]! * b, 1.4 + g.r * 6, Math.min(1, g.a));
     }
   };
 
@@ -243,7 +296,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     const c = game.counts();
     const dead = game.phase === 'DEADLOCK';
     const won = game.phase === 'WON';
-    const title = won ? '◆ CIRCUIT TAKEN' : dead ? '⟳ DEADLOCK' : '✕ REPELLED';
+    const title = won ? '◆ COMPLETE' : dead ? '⟳ DEADLOCK · 6–6 replays' : '✕ REJECTED';
     const color = won ? '#8fd0b6' : dead ? '#e0b070' : '#d0605a';
     overlay.innerHTML =
       `<div style="font-size:22px;letter-spacing:.2em;color:${color}">${title}</div>` +
@@ -260,6 +313,8 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     const dt = Math.min(0.05, (now - lastT) / 1000);
     lastT = now;
     game.tick(dt);
+
+    const powered = game.phase !== 'PLAN';
 
     const lights = new Map<string, { p: number; owner: 'P' | 'E'; kind: string }[]>();
     for (const p of game.pulses) {
@@ -278,12 +333,15 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     // tubes + elements
     for (const r of routes) {
       const role = game.playerSide ? (r.side === game.playerSide ? 'P' : 'E') : 'N';
-      // Your side (or the left circuit before a side is taken) is green; the
-      // host is its theme colour; neutral right is white. A per-terminal tone
-      // keeps overlapping lanes distinct.
+      // OFF (PLAN): every tube is a single dim gray, no owner colour, no flow.
+      // ON: your side green, host themed, neutral white — per-terminal tone keeps
+      // overlapping lanes distinct.
       let dim: RGB;
       let flow: RGB;
-      if (role === 'E') {
+      if (!powered) {
+        dim = C.offDim;
+        flow = C.offDim;
+      } else if (role === 'E') {
         const tone = 0.8 + 0.2 * (r.term % 2);
         dim = scale(enemy.dim, tone);
         flow = scale(enemy.color, tone);
@@ -296,7 +354,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
       }
       const isPrev = previewing && r.side === hoverSide && r.term === hoverTerm;
       const active = lights.get(`${r.side}:${r.term}:${r.cell}`);
-      const endU = r.kind === 'DEAD' ? 0.66 : 1;
+      const endU = endUForKind(r.kind);
       drawTube(
         field,
         r.dots,
@@ -304,7 +362,7 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
         flow,
         (u) => {
           let b = isPrev ? 0.42 : 0;
-          let col: RGB = isPrev ? kindColor(r.kind) : C.white;
+          let col: RGB = C.white;
           if (active)
             for (const L of active) {
               const g = u <= L.p ? Math.exp(-(L.p - u) / 0.12) : Math.exp(-(u - L.p) / 0.025);
@@ -318,20 +376,33 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
         endU,
         nowSec,
         r.term * 0.6 + (r.side === 'left' ? 0 : 1.7),
-        true,
+        powered,
       );
-      // element glyph on the tube
-      const gb = isPrev ? 1 : 0.7;
-      if (r.kind === 'INVERT') {
-        const q = at(r.dots, 0.5);
-        ring(q.x, q.y, 0.02, C.invert, 2.4, gb);
-      } else if (r.kind === 'REPEAT') {
-        const q = at(r.dots, 0.5);
-        const pulse = 0.7 + 0.3 * Math.sin(now / 200);
-        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) field.dot(q.x + dx * 0.014, q.y + dy * 0.014, C.repeat[0] * gb * pulse, C.repeat[1] * gb * pulse, C.repeat[2] * gb * pulse, 3);
-      } else if (r.kind === 'DEAD') {
-        const q = at(r.dots, 0.66);
-        xMark(q.x, q.y, 0.012, C.dead, gb);
+
+      // element glyph on the tube (gray while unpowered)
+      const gb = (isPrev ? 1 : 0.7) * (powered ? 1 : 0.85);
+      const tint: RGB | undefined = powered ? undefined : C.offGlyph;
+      const gk = glyphForKind(r.kind);
+      const q = at(r.dots, glyphU(r.kind));
+      drawGlyph(gk, q.x, q.y, nowSec, gb, 0.03, tint);
+      // a SPLIT fork glyph at the branch of any multi-outcome terminal
+      // (drawn once, on the primary route, just past the terminal stub)
+      if (r.fork && r.primary) {
+        const f = at(r.dots, 0.22);
+        drawGlyph('SPLIT', f.x, f.y, nowSec, gb * 0.85, 0.026, tint);
+      }
+    }
+
+    // JOINER glyphs — for each pair, mark the shared cell approach on both tubes
+    for (const [ta, tb] of joiners) {
+      for (const side of ['left', 'right'] as Side[]) {
+        for (const term of [ta, tb]) {
+          const r = routes.find((rr) => rr.side === side && rr.term === term && rr.kind === 'CLAIM');
+          if (!r) continue;
+          const tint: RGB | undefined = powered ? undefined : C.offGlyph;
+          const q = at(r.dots, 0.82);
+          drawGlyph('JOINER', q.x, q.y, nowSec, 0.75 * (powered ? 1 : 0.85), 0.026, tint);
+        }
       }
     }
 
@@ -339,9 +410,12 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     for (const p of game.pulses) {
       const dots = routeMap.get(`${p.side}:${p.terminalId}:${p.cell}`);
       if (!dots) continue;
-      const q = at(dots, Math.min(1, p.elapsed / p.delay));
-      const col = p.kind === 'DEAD' ? C.dead : mix(p.owner === 'P' ? C.litP : enemyLit(), C.white, 0.4);
-      field.dot(q.x, q.y, col[0], col[1], col[2], 9);
+      // SHORT dies before the cell — cap the head at the spark
+      const endU = endUForKind(p.kind);
+      const u = Math.min(endU, p.elapsed / p.delay);
+      const q = at(dots, u);
+      const col = p.kind === 'DEAD' || p.kind === 'SHORT' ? C.dead : mix(p.owner === 'P' ? C.litP : enemyLit(), C.white, 0.4);
+      field.dot(q.x, q.y, col[0]!, col[1]!, col[2]!, 9);
     }
 
     // cells (+ reach-preview highlight rings). A captured node becomes the
@@ -368,10 +442,10 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
       } else {
         const s = 0.026;
         const col = mix(C.cellN, C.white, flash * 0.7);
-        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) field.dot(x + dx * s, y + dy * s, col[0], col[1], col[2], 4.5);
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) field.dot(x + dx * s, y + dy * s, col[0]!, col[1]!, col[2]!, 4.5);
       }
       const pk = previewCells.get(i);
-      if (pk) ring(x, y, 0.058, kindColor(pk), 3, 0.9);
+      if (pk) ring(x, y, 0.058, glyphKindColor(pk), 3, 0.9);
     }
 
     // terminals — searching primitives (octahedra left, cubes right). Grow a
@@ -402,12 +476,12 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     timerRing.setAttribute('r', String(3 + 18 * frac));
     timerRing.setAttribute('stroke', timerColor(frac));
     const c = game.counts();
-    tally.textContent = `you c${board.spec.attacker} vs ${enemy.label} c${board.spec.defender} · ${c.p}–${c.e} · lead wins`;
+    tally.textContent = `you c${board.spec.attacker} vs ${enemy.label} c${board.spec.defender} · you ${c.p}/12 · need 7`;
     if (game.phase === 'PLAN') {
-      prompt.textContent = 'READ BOTH CIRCUITS — hover a terminal to preview its reach, then click a side to take it';
+      prompt.textContent = 'READ BOTH CIRCUITS (unpowered) — hover a terminal to preview its reach, then click a side to power it up';
       prompt.style.opacity = '1';
     } else if (game.phase === 'RUN') {
-      prompt.textContent = 'fire your terminals · dead stubs waste a pulse · later light wins the cell';
+      prompt.textContent = 'fire your terminals · dead/short waste a pulse · later light wins the cell';
       prompt.style.opacity = '0.7';
     } else prompt.style.opacity = '0';
     if ((game.phase === 'WON' || game.phase === 'LOST' || game.phase === 'DEADLOCK') && overlay.style.display === 'none') showOverlay();
@@ -431,3 +505,26 @@ export function mountTubes(canvas: HTMLCanvasElement, initial: { spec: MatchSpec
     },
   };
 }
+
+// preview ring tint by outcome kind (green for gains, amber for tools, red for traps)
+const glyphKindColor = (k: OutcomeKind): RGB => {
+  const gk = ((): GlyphKind => {
+    switch (k) {
+      case 'CLAIM':
+      case 'REPEAT':
+        return 'CLAIM';
+      case 'LOCK':
+        return 'LOCK';
+      case 'DEAD':
+        return 'DEAD';
+      case 'SHORT':
+        return 'SHORT';
+      case 'FLIP':
+        return 'FLIP';
+      default:
+        return 'CONVERT';
+    }
+  })();
+  const info = ELEMENT_INFO.find((e) => e.kind === gk);
+  return info?.tag === 'bad' ? [0.95, 0.4, 0.36] : info?.tag === 'tool' ? [0.95, 0.78, 0.4] : [0.4, 0.95, 0.7];
+};
