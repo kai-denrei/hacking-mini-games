@@ -35,6 +35,7 @@ interface LockView {
 
 export interface Mounted {
   regenerate(difficulty: Difficulty, seed: string): void;
+  outcome(): 'won' | 'lost' | 'pending';
   alignLock(index: number): void;
   debugExtract(l: number, count: number): void;
   debugSolve(): void;
@@ -194,7 +195,7 @@ export function mountConstellationOrbs(
       return { axis: lock.axis, glyph: glyphByName(lock.glyph), signalIdx, signalPts, flat, coherence: 0 };
     });
 
-    hint.textContent = `D${difficulty} · ${seed} · ${board.locks.length} lock(s) · orbit to align · click to extract · R`;
+    hint.textContent = `LVL ${difficulty}/5 · ${seed} · ${board.locks.length} lock(s) · orbit to align · click to extract · R`;
     overlay.style.display = 'none';
     engaged = false;
     prevEngaged = false;
@@ -501,6 +502,7 @@ export function mountConstellationOrbs(
     regenerate(difficulty, seed) {
       build(difficulty, seed);
     },
+    outcome: () => (game.phase === 'WON' ? 'won' : game.over ? 'lost' : 'pending'),
     alignLock(index) {
       const lv = lockViews[index];
       if (!lv) return;

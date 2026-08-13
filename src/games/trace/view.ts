@@ -36,6 +36,7 @@ const typeColor = (ty: NodeType): RGB =>
 
 export interface Mounted {
   regenerate(difficulty: Difficulty, seed: string): void;
+  outcome(): 'won' | 'lost' | 'pending';
   dispose(): void;
 }
 
@@ -515,7 +516,7 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
     }
     prompt.style.opacity = game.over ? '0' : '1';
     tally.innerHTML =
-      `D${board.difficulty} · ${board.seed}<br>` +
+      `LVL ${board.difficulty}/5 · ${board.seed}<br>` +
       `loot ${game.loot} · tracer ${game.tracer ? `${game.tracerHopsToEntry()} hops out` : 'dormant'}` +
       (risk >= 0 ? `<br><span style="color:#e0b070">detect ${risk}%</span>` : '');
     bar.style.display = game.over ? 'none' : 'flex';
@@ -527,6 +528,7 @@ export function mountTrace(canvas: HTMLCanvasElement, initial: { difficulty: Dif
 
   return {
     regenerate: (d, seed) => build(d, seed),
+    outcome: () => (game.phase === 'WON' ? 'won' : game.over ? 'lost' : 'pending'),
     dispose() {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);

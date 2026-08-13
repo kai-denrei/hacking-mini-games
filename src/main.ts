@@ -20,6 +20,30 @@ const DUEL = new Set<GameName>(['circuit-duel-2']);
 // shallow end; a 6–6 deadlock replays the same board.
 let rung = 0;
 
+// TRACE + CONSTELLATION use a simpler per-game difficulty ladder (levels 1..5):
+// win a round then reseed to climb one level, lose then reseed to ease down one
+// (mid-run reseeds don't move it). The level shows in each game's status line;
+// a brief center flash marks the change.
+type Outcome = 'won' | 'lost' | 'pending';
+const SIMPLE_MIN: Difficulty = 1;
+const SIMPLE_MAX: Difficulty = 5;
+const levels: Record<GameName, Difficulty> = { 'constellation-orbs': 1, trace: 1, 'circuit-duel-2': 1 };
+
+const levelFlash = document.createElement('div');
+levelFlash.style.cssText =
+  'position:fixed;top:38%;left:50%;transform:translateX(-50%);z-index:2147483646;pointer-events:none;' +
+  'font:600 15px ui-monospace,Menlo,monospace;letter-spacing:.14em;padding:8px 16px;border-radius:8px;' +
+  'background:rgba(10,11,18,.72);border:1px solid #2c2c38;opacity:0;transition:opacity .35s;white-space:nowrap';
+document.body.appendChild(levelFlash);
+let flashTimer = 0;
+function showLevelFlash(lv: Difficulty, trend: 'up' | 'down'): void {
+  const up = trend === 'up';
+  levelFlash.innerHTML = `<span style="color:${up ? '#8fd0b6' : '#e0b070'}">LEVEL ${lv} ${up ? '▲ harder' : '▼ easier'}</span>`;
+  levelFlash.style.opacity = '1';
+  clearTimeout(flashTimer);
+  flashTimer = window.setTimeout(() => (levelFlash.style.opacity = '0'), 1600);
+}
+
 interface DuelGame {
   dispose(): void;
   regenerate(spec: MatchSpec, seed: string): void;
@@ -28,6 +52,7 @@ interface DuelGame {
 interface SimpleGame {
   dispose(): void;
   regenerate(d: Difficulty, seed: string): void;
+  outcome(): Outcome;
 }
 type Game = DuelGame | SimpleGame;
 
@@ -71,8 +96,8 @@ function mountGame(name: GameName): void {
       name === 'circuit-duel-2'
         ? mountCircuitDuel2(canvas, duel('hdt'))
         : name === 'trace'
-          ? mountTrace(canvas, { ...CFG, seed: 'net' })
-          : mountConstellationOrbs(canvas, { ...CFG, seed: 'orbs' });
+          ? mountTrace(canvas, { ...CFG, difficulty: levels[name], seed: 'net' })
+          : mountConstellationOrbs(canvas, { ...CFG, difficulty: levels[name], seed: 'orbs' });
     (window as unknown as { __cx: Game }).__cx = current;
   } catch (err) {
     console.error(err);
@@ -107,8 +132,22 @@ function reseed(): void {
       (current as DuelGame).regenerate(LADDER[rung]!, `${currentName}-${seq}`);
       updateLadderHud(trend);
     } else {
+      // Read the finished round's outcome, then move the level: win → +1,
+      // lose → −1 (a mid-run reseed is 'pending' and holds the level).
+      const g = current as SimpleGame;
+      const out = g.outcome();
+      let trend: '' | 'up' | 'down' = '';
+      const lv = levels[currentName];
+      if (out === 'won' && lv < SIMPLE_MAX) {
+        levels[currentName] = (lv + 1) as Difficulty;
+        trend = 'up';
+      } else if (out === 'lost' && lv > SIMPLE_MIN) {
+        levels[currentName] = (lv - 1) as Difficulty;
+        trend = 'down';
+      }
       seq += 1;
-      (current as SimpleGame).regenerate(CFG.difficulty, `${currentName}-${seq}`);
+      g.regenerate(levels[currentName], `${currentName}-${seq}`);
+      if (trend) showLevelFlash(levels[currentName], trend);
     }
   } catch (err) {
     console.error(err);
