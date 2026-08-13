@@ -67,7 +67,6 @@ export function mountConstellationOrbs(
   const DPR = Math.min(2, window.devicePixelRatio || 1);
   const target = new THREE.Vector3(0, 0, 0);
 
-  const FRUSTUM_HALF = 1.12;
   const FLASH_DUR = 0.7;
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
   camera.position.set(0, 0, 4);
@@ -91,7 +90,7 @@ export function mountConstellationOrbs(
 
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '0 0 220 130');
-  svg.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);width:220px;height:130px;pointer-events:none';
+  svg.style.cssText = 'position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);width:220px;height:130px;pointer-events:none';
   const arcDots: SVGCircleElement[] = [];
   for (let i = 0; i < ARC_DOTS; i++) {
     const a = Math.PI * (1 - i / (ARC_DOTS - 1));
@@ -114,7 +113,7 @@ export function mountConstellationOrbs(
 
   const timerSvg = document.createElementNS(NS, 'svg');
   timerSvg.setAttribute('viewBox', '0 0 48 48');
-  timerSvg.style.cssText = 'position:fixed;left:50%;top:10px;transform:translateX(-50%);width:46px;height:46px;pointer-events:none';
+  timerSvg.style.cssText = 'position:fixed;left:50%;top:calc(10px + env(safe-area-inset-top));transform:translateX(-50%);width:46px;height:46px;pointer-events:none';
   const timerRing = document.createElementNS(NS, 'circle');
   timerRing.setAttribute('cx', '24');
   timerRing.setAttribute('cy', '24');
@@ -125,15 +124,16 @@ export function mountConstellationOrbs(
   timerSvg.appendChild(timerRing);
   document.body.appendChild(timerSvg);
 
-  const strikes = el('div', `position:fixed;top:10px;right:12px;display:flex;gap:6px;font:13px ${mono};color:#5a5a64;pointer-events:none`);
+  // top-left (the top-right corner is taken by the global home/reset buttons)
+  const strikes = el('div', `position:fixed;top:calc(10px + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));display:flex;gap:6px;font:13px ${mono};color:#5a5a64;pointer-events:none`);
   const pips: HTMLElement[] = [0, 1, 2].map(() => {
     const p = document.createElement('span');
     p.textContent = '✕';
     strikes.appendChild(p);
     return p;
   });
-  const progress = el('div', `position:fixed;left:50%;top:30px;transform:translateX(-50%);font:11px ${mono};color:#8fd0b6;pointer-events:none;opacity:0`);
-  const hint = el('div', `position:fixed;left:12px;bottom:12px;font:11px ${mono};color:#55555f;pointer-events:none`);
+  const progress = el('div', `position:fixed;left:50%;top:calc(30px + env(safe-area-inset-top));transform:translateX(-50%);font:11px ${mono};color:#8fd0b6;pointer-events:none;opacity:0`);
+  const hint = el('div', `position:fixed;left:calc(12px + env(safe-area-inset-left));bottom:calc(12px + env(safe-area-inset-bottom));max-width:58vw;font:11px ${mono};color:#55555f;pointer-events:none`);
   const reticle = el('div', 'position:fixed;width:16px;height:16px;border:1px solid #6fe0b8;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .1s');
   const vignette = el('div', 'position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 120px 20px #d0403a;opacity:0;transition:opacity .3s');
   const overlay = el('div', `position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,8,13,.55);font:${mono};text-align:center;pointer-events:none`);
@@ -153,6 +153,7 @@ export function mountConstellationOrbs(
   let engaged = false;
   let prevEngaged = false;
   let flashStart = -1e9;
+  let maxR = 1; // cloud bounding radius (fit the camera so it never clips on portrait)
 
   function build(difficulty: Difficulty, seed: string): void {
     board = generateBoard(difficulty, seed);
@@ -166,6 +167,11 @@ export function mountConstellationOrbs(
       base[i * 3 + 1] = p.pos[1];
       base[i * 3 + 2] = p.pos[2];
     });
+    maxR = 1e-3;
+    for (let i = 0; i < n; i++) {
+      const r = Math.hypot(base[i * 3]!, base[i * 3 + 1]!, base[i * 3 + 2]!);
+      if (r > maxR) maxR = r;
+    }
     live = base.slice();
     emph = new Float32Array(n);
     scr = new Float32Array(n * 2);
@@ -192,6 +198,7 @@ export function mountConstellationOrbs(
     overlay.style.display = 'none';
     engaged = false;
     prevEngaged = false;
+    resize();
   }
   build(initial.difficulty, initial.seed);
 
@@ -203,10 +210,13 @@ export function mountConstellationOrbs(
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
     const aspect = w / h;
-    camera.left = -FRUSTUM_HALF * aspect;
-    camera.right = FRUSTUM_HALF * aspect;
-    camera.top = FRUSTUM_HALF;
-    camera.bottom = -FRUSTUM_HALF;
+    // Fit the cloud's bounding radius in the *smaller* screen dimension (+margin)
+    // so the whole shape stays on-screen on portrait/mobile, not just landscape.
+    const half = (maxR * 1.14) / Math.min(1, aspect);
+    camera.left = -half * aspect;
+    camera.right = half * aspect;
+    camera.top = half;
+    camera.bottom = -half;
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize);

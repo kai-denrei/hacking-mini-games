@@ -135,7 +135,7 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
   };
   const timerSvg = document.createElementNS(NS, 'svg');
   timerSvg.setAttribute('viewBox', '0 0 48 48');
-  timerSvg.style.cssText = 'position:fixed;left:50%;top:10px;transform:translateX(-50%);width:44px;height:44px;pointer-events:none';
+  timerSvg.style.cssText = 'position:fixed;left:50%;top:calc(10px + env(safe-area-inset-top));transform:translateX(-50%);width:44px;height:44px;pointer-events:none';
   const timerRing = document.createElementNS(NS, 'circle');
   timerRing.setAttribute('cx', '24');
   timerRing.setAttribute('cy', '24');
@@ -145,9 +145,9 @@ export function mountCircuitDuel2(canvas: HTMLCanvasElement, initial: { spec: Ma
   timerRing.setAttribute('stroke-width', '1.6');
   timerSvg.appendChild(timerRing);
   document.body.appendChild(timerSvg);
-  const prompt = mk(`position:fixed;left:50%;top:56px;transform:translateX(-50%);font:12px ${monoF};color:#9a9aa6;pointer-events:none;text-align:center`);
-  const tally = mk(`position:fixed;left:12px;bottom:12px;font:11px ${monoF};color:#55555f;pointer-events:none`);
-  const legend = mk(`position:fixed;right:12px;bottom:12px;font:11px ${monoF};color:#6a6a76;pointer-events:none;text-align:right`);
+  const prompt = mk(`position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top));transform:translateX(-50%);max-width:min(92vw,560px);font:12px ${monoF};color:#9a9aa6;pointer-events:none;text-align:center;line-height:1.45`);
+  const tally = mk(`position:fixed;left:calc(12px + env(safe-area-inset-left));bottom:calc(12px + env(safe-area-inset-bottom));max-width:46vw;font:11px ${monoF};color:#55555f;pointer-events:none`);
+  const legend = mk(`position:fixed;right:calc(12px + env(safe-area-inset-right));bottom:calc(12px + env(safe-area-inset-bottom));max-width:46vw;font:11px ${monoF};color:#6a6a76;pointer-events:none;text-align:right`);
   // Derive legend colors from the single-source ELEMENT_INFO tag (good/tool/bad).
   const glyphColorCss = Object.fromEntries(
     ELEMENT_INFO.map((e) => [
